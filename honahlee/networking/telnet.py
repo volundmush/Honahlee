@@ -147,7 +147,6 @@ class TelnetProtocol(GameClientProtocol):
         for op_code, handler in sorted(self.handlers.items(), key=lambda x: x[1].order):
             handler.will()
 
-
     @classmethod
     def register_handler(cls, op_code, handler_class):
         """
@@ -156,24 +155,19 @@ class TelnetProtocol(GameClientProtocol):
         cls.handler_classes[op_code] = handler_class
 
     def execute_iac_command(self, command, op_code):
-        handler = self.handlers.get(op_code, None)
-        if handler:
+        if (handler := self.handlers.get(op_code, None)):
             # Support this feature. Pass the command received up to its handler.
             handler.receive_command(command)
         else:
-            # We do NOT support this feature.
-            if command == TCODES.WILL:
-                self.send_bytes(bytes([TCODES.DONT, op_code]))
-            if command == TCODES.DO:
-                self.send_bytes(bytes([TCODES.WONT, op_code]))
+            response = TCODES.DONT if command == TCODES.WILL else TCODES.DONT
+            self.send_bytes(bytes([TCODES.IAC, response, op_code]))
             # No reason to respond to a random IAC WONT that wasn't preceded with a WILL/DO...
 
     def execute_line(self, buffer):
         self.client.execute_command(buffer)
 
     def execute_sb(self, op_code, data):
-        handler = self.handlers.get(op_code, None)
-        if handler:
+        if (handler := self.handlers.get(op_code, None)):
             # We support this feature. pass the data up to the handler.
             handler.receive_sb(data)
         else:
@@ -191,15 +185,10 @@ class TelnetProtocol(GameClientProtocol):
         self.process_bytes(data)
 
     def process_bytes(self, data):
-        print(f"RECEIVED BYTES: {type(data)} {data}")
         for b in data:
-            print(f"PROCESSING {type(b)} {b}")
-            print(f"{self} CURRENT MODE: {self.state}")
             # for DATA STATE
             if self.state == TSTATE.DATA:
-                print(f"{self} IS IN DATA MODE RECEIVED {b}")
                 if b == TCODES.IAC:
-                    print(f"{self} ENTERING ESCAPE MODE")
                     # Receiving an IAC puts us in ESCAPED state.
                     self.state = TSTATE.ESCAPED
                     continue
