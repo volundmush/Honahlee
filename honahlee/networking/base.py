@@ -10,8 +10,9 @@ class GameClient:
         self.protocol = protocol
         protocol.register_client(self)
 
-    def process_command(self, command):
+    def execute_command(self, command):
         print(f"RECEIVED COMMAND: {command}")
+        self.protocol.send_bytes(command)
 
 
 class GameClientProtocol(asyncio.Protocol):
