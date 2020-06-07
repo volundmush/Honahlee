@@ -1,6 +1,7 @@
 from honahlee.networking.base import GameClientProtocol
 import zlib
 
+
 class TCODES:
     NUL = 0
     BEL = 7
@@ -36,6 +37,11 @@ class TCODES:
     MSDP = 69
 
 
+CODES_COMMAND = [TCODES.DONT, TCODES.WONT, TCODES.WILL, TCODES.DO]
+CODES_REFUSE = [TCODES.DONT, TCODES.WONT]
+CODES_ACCEPT = [TCODES.WILL, TCODES.DO]
+
+
 class TelnetOptionHandler:
     op_code = None
     order = 0
@@ -43,37 +49,43 @@ class TelnetOptionHandler:
     def __init__(self, protocol):
         self.protocol = protocol
         self.enabled = False
-        self.received = 0
         self.sent = 0
 
     def enable(self):
-        print(f"ENABLING {self}")
         pass
 
     def disable(self):
-        print(f"DISABLING {self}")
         pass
 
+    def send_command(self, command):
+        self.sent = command
+        self.protocol.send_bytes(bytes([TCODES.IAC, command, self.op_code]))
+
     def will(self):
-        self.sent = TCODES.WILL
-        self.protocol.send_bytes(bytes([TCODES.IAC, TCODES.WILL, self.op_code]))
+        self.send_command(TCODES.WILL)
 
     def receive_command(self, command):
-        print(f"{self} RECEIVED COMMAND: {command}")
-        if self.enabled:
-            if command in (TCODES.DONT, TCODES.WONT):
+        if command in CODES_REFUSE:
+            # Not much to do here - disable if enabled, and otherwise carry on.
+            if self.enabled:
+                # The client has signaled to us that we should stop using this feature.
                 self.disable()
                 self.enabled = False
-            # ignore DO or WILL if already enabled.
-        else:
-            if (command == TCODES.DO and self.sent == TCODES.WILL) or (command == TCODES.WILL and self.sent == TCODES.DO):
-                # We have received a positive response from client. Enable this option.
-                self.enable()
-                self.enabled = True
-                self.sent = 0
-            if (command == TCODES.DONT and self.sent == TCODES.WILL) or (command == TCODES.WONT and self.sent == TCODES.DO):
-                # the command has rejected our negotiation. Do not enable this option.
-                pass
+            return
+
+        # if we've reached this point, 'command' is either a WILL or DO.
+        if self.enabled:
+            # We erroneously received a an accept after already enabling. Ignore this.
+            return
+
+        if self.sent not in CODES_ACCEPT:
+            # The client is (probably?) answering us affirmatively. It could also be that we both say 'do this'
+            # before receiving the other's IAC WILL/DO and replying. However, if we didn't send this code, then
+            # we need to respond with its correlation.
+            self.send_command(TCODES.WILL if command == TCODES.DO else TCODES.DO)
+        self.enable()
+        self.enabled = True
+        self.sent = 0
 
     def receive_sb(self, data):
         pass
@@ -96,6 +108,10 @@ class MCCP2Handler(TelnetOptionHandler):
 
 class MCCP3Handler(TelnetOptionHandler):
     op_code = TCODES.MCCP3
+
+    def receive_sb(self, data):
+        # MCCP3 can only be sending us one thing, so we're gonna ignore
+        self.protocol.mccp3 = zlib.decompressobj()
 
 
 # Yeah this is basically an enum.
@@ -171,7 +187,7 @@ class TelnetProtocol(GameClientProtocol):
         self.final_send_bytes(data)
 
     def data_received(self, data):
-        # Gotta stick MCCP3 handling in here shorTCODES.. if mccp3, decompress incoming.
+        # Gotta stick MCCP3 handling in here shortly.. if mccp3, decompress incoming.
         self.process_bytes(data)
 
     def process_bytes(self, data):
@@ -197,7 +213,7 @@ class TelnetProtocol(GameClientProtocol):
 
             # for ESCAPED state, which begins with an IAC.
             if self.state == TSTATE.ESCAPED:
-                if b in (TCODES.WILL, TCODES.WONT, TCODES.DO, TCODES.DONT):
+                if b in CODES_COMMAND:
                     # Receiving WILl, WONT, DO, or DONT puts us in command mode where we await an option code.
                     self.state = TSTATE.COMMAND
                     self.command_mode = b
