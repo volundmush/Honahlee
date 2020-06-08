@@ -11,7 +11,7 @@ class GameClient:
         protocol.register_client(self)
 
     def execute_command(self, command):
-        self.protocol.send_bytes(command)
+        self.protocol.send_bytes(b'ECHO: ' + command + b'\r\n')
 
 
 class GameClientProtocol(asyncio.Protocol):

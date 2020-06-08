@@ -2,10 +2,16 @@
 
 import asyncio
 import uvloop
-
+from tortoise import Tortoise
 
 async def main():
     print("HELLO WORLD!")
+    await Tortoise.init(
+        db_url="sqlite://db.sqlite3",
+        modules={'honahlee': ['honahlee.models']}
+    )
+    print("generating schemas...")
+    await Tortoise.generate_schemas(safe=True)
     fake_app = None
     from honahlee.networking.base import NetworkManager
     from honahlee.networking.telnet import TelnetProtocol
