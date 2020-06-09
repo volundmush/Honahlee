@@ -7,6 +7,9 @@ from tortoise import Tortoise
 
 
 async def main():
+
+
+
     await Tortoise.init(
         db_url="sqlite://db.sqlite3",
         modules={'honahlee': ['honahlee.models']}
@@ -21,8 +24,7 @@ async def main():
     net_man.register_protocol('telnet', TelnetProtocol)
     server = await net_man.create_server('telnet', '10.0.0.226', 4100, 'telnet', False)
 
-    await server.serve_forever()
 
 if __name__ == "__main__":
     uvloop.install()
-    asyncio.run(main())
+    asyncio.run_forever(main())
