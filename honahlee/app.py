@@ -1,14 +1,12 @@
 #!/usr/bin/env python3.8
 
-
+import os, sys
 import asyncio
 import uvloop
 from tortoise import Tortoise
 
 
 async def main():
-
-
 
     await Tortoise.init(
         db_url="sqlite://db.sqlite3",
@@ -27,4 +25,4 @@ async def main():
 
 if __name__ == "__main__":
     uvloop.install()
-    asyncio.run_forever(main())
+    asyncio.run(main())
