@@ -1,15 +1,26 @@
 #!/usr/bin/env python3.8
 
-import os, sys, re, shutil
 import argparse
 import asyncio
+import os
+import sys
+import re
+import shutil
+import subprocess
+import shlex
+import signal
+
 import uvloop
 import honahlee
 
-HONAHLEE_ROOT = os.path.abspath(honahlee.__file__)
+HONAHLEE_ROOT = os.path.abspath(os.path.dirname(honahlee.__file__))
+HONAHLEE_APP = os.path.join(HONAHLEE_ROOT, 'app.py')
 HONAHLEE_PROFILE = os.path.join(HONAHLEE_ROOT, 'profile_template')
+HONAHLEE_FOLDER = os.path.join(os.path.expanduser('~'), '.honahlee')
 
 PROFILE_PATH = None
+PROFILE_PIDFILE = None
+PROFILE_PID = -1
 
 
 def create_parser():
@@ -20,19 +31,58 @@ def create_parser():
 
 
 def set_profile_path(args):
-    global PROFILE_PATH
+    global PROFILE_PATH, PROFILE_PIDFILE
     reg = re.compile(r"^\w+$")
     profile_name = args.profile.lower()
     if not reg.match(profile_name):
         raise ValueError("Must stick to very simple profile names!")
-    honahlee_folder = os.path.join(os.path.expanduser('~'), '.honahlee')
-    if not os.path.exists(honahlee_folder):
-        os.makedirs(honahlee_folder)
-    PROFILE_PATH = os.path.join(honahlee_folder, profile_name)
+    if not os.path.exists(HONAHLEE_FOLDER):
+        os.makedirs(HONAHLEE_FOLDER)
+    PROFILE_PATH = os.path.join(HONAHLEE_FOLDER, profile_name)
+    PROFILE_PIDFILE = os.path.join(PROFILE_PATH, "server.pid")
+
+
+def ensure_running():
+    global PROFILE_PID
+    if not os.path.exists(PROFILE_PIDFILE):
+        raise ValueError("Process is not running!")
+    with open(PROFILE_PIDFILE, "r") as p:
+        if not (PROFILE_PID := int(p.read())):
+            raise ValueError("Process pid corrupted.")
+    try:
+        # This doesn't actually do anything except verify that the process exists.
+        os.kill(PROFILE_PID, 0)
+    except OSError:
+        print("Process ID seems stale. Removing stale pidfile.")
+        os.remove(PROFILE_PIDFILE)
+        return False
+    return True
+
+
+def ensure_stopped():
+    global PROFILE_PID
+    if not os.path.exists(PROFILE_PIDFILE):
+        return True
+    with open(PROFILE_PIDFILE, "r") as p:
+        if not (PROFILE_PID := int(p.read())):
+            raise ValueError("Process pid corrupted.")
+    try:
+        os.kill(PROFILE_PID, 0)
+    except OSError:
+        return True
+    return False
 
 
 def operation_start(args):
-    pass
+    if not ensure_stopped():
+        raise ValueError(f"Server is already running as Process {PROFILE_PID}.")
+    print("LET'S START THIS THING!")
+    env = os.environ.copy()
+    env['HONAHLEE_PROFILE'] = PROFILE_PATH
+    cmd = f"{sys.executable} {HONAHLEE_APP}"
+    subprocess.Popen(shlex.split(cmd), env=env)
+    if not ensure_running():
+        raise ValueError("Could not launch Honahlee! Why?")
 
 
 def operation_noop(args):
@@ -40,7 +90,11 @@ def operation_noop(args):
 
 
 def operation_stop(args):
-    pass
+    if not ensure_running():
+        raise ValueError("Server is not running.")
+    os.kill(PROFILE_PID, signal.SIGTERM)
+    os.remove(PROFILE_PIDFILE)
+    print(f"Stopped process {PROFILE_PID}")
 
 
 def operation_migrate(args):
@@ -51,6 +105,9 @@ def operation_create(args):
     if not os.path.exists(PROFILE_PATH):
         shutil.copytree(HONAHLEE_PROFILE, PROFILE_PATH)
         os.rename(os.path.join(PROFILE_PATH, 'gitignore'), os.path.join(PROFILE_PATH, '.gitignore'))
+        print(f"Profile created at {PROFILE_PATH}")
+    else:
+        print(f"Profile at {PROFILE_PATH} already exists!")
 
 
 def operation_list(args):

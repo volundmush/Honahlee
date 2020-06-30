@@ -1,4 +1,4 @@
-from honahlee.networking.base import GameClientProtocol
+from honahlee.protocols.base import BaseProtocol
 import zlib
 
 
@@ -125,15 +125,15 @@ class TSTATE:
     ENDLINE = 6
 
 
-class TelnetProtocol(GameClientProtocol):
+class TelnetProtocol(BaseProtocol):
     handler_classes = {
         TCODES.MXP: MXPHandler,
         TCODES.MCCP2: MCCP2Handler,
         TCODES.MCCP3: MCCP3Handler,
     }
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, server):
+        super().__init__(server)
         self.state = 0
         self.handlers = {key: value(self) for key, value in self.handler_classes.items()}
         self.command_buffer = bytearray()
