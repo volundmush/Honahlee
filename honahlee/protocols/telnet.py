@@ -126,6 +126,8 @@ class TSTATE:
 
 
 class TelnetProtocol(BaseProtocol):
+    protocol_name = 'telnet'
+
     handler_classes = {
         TCODES.MXP: MXPHandler,
         TCODES.MCCP2: MCCP2Handler,
