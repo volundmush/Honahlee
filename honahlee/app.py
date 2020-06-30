@@ -34,13 +34,13 @@ if __name__ == "__main__":
         raise ValueError("Improper Honahlee profile!")
     os.chdir(os.path.abspath(new_cwd))
     sys.path.insert(0, os.getcwd())
+    sys.stdout = open('honah.log', 'a+')
 
     pidfile = os.path.join('.', 'server.pid')
     with open(pidfile, 'w') as p:
         p.write(str(os.getpid()))
         print(pidfile)
         print(os.getpid())
-    print(f"HONAHLEE RUNNING FROM {os.getcwd()}")
 
     uvloop.install()
-    asyncio.run(main())
+    asyncio.run(main(), debug=True)

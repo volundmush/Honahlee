@@ -147,13 +147,6 @@ class TelnetProtocol(BaseProtocol):
         for op_code, handler in sorted(self.handlers.items(), key=lambda x: x[1].order):
             handler.will()
 
-    @classmethod
-    def register_handler(cls, op_code, handler_class):
-        """
-        Used to add new Option Handlers to the TelnetProtocol class. Called by mods/plugins.
-        """
-        cls.handler_classes[op_code] = handler_class
-
     def execute_iac_command(self, command, op_code):
         if (handler := self.handlers.get(op_code, None)):
             # Support this feature. Pass the command received up to its handler.
@@ -164,7 +157,7 @@ class TelnetProtocol(BaseProtocol):
             # No reason to respond to a random IAC WONT that wasn't preceded with a WILL/DO...
 
     def execute_line(self, buffer):
-        self.client.execute_command(buffer)
+        pass
 
     def execute_sb(self, op_code, data):
         if (handler := self.handlers.get(op_code, None)):

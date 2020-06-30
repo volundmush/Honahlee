@@ -13,13 +13,16 @@ class BaseServer:
         self.protocol = protocol
         self.tls = tls
         self.task = None
+        self.server = None
         self.connections = dict()
 
     async def start(self):
         if not self.task:
             loop = asyncio.get_running_loop()
-            self.task = await loop.create_server(lambda: self.protocol(self), host=self.address, port=self.port,
+            self.server = await loop.create_server(lambda: self.protocol(self), host=self.address, port=self.port,
                                                  ssl=None if not self.tls else self.service.ssl_context)
+            self.task = await loop.create_task(self.server.serve_forever())
+            print(self.task)
 
     async def stop(self):
         if self.task:
@@ -61,7 +64,6 @@ class NetworkService(BaseService):
             raise ValueError("TLS is not properly configured. Cannot start TLS server.")
         new_server = srv_class(self, name, address, port, prot_class, tls)
         self.servers[name] = new_server
-        await new_server.start()
         return new_server
 
     def register_connection(self, conn):
@@ -79,7 +81,9 @@ class NetworkService(BaseService):
             self.register_protocol_class(k, prot_class)
         # do TLS init down here...
 
+        for k, v in self.app.settings.SERVERS.items():
+            await self.create_server(k, v['address'], v['port'], v['server_class'], v['protocol_class'], v['tls'])
+
     async def start(self):
         for k, v in self.servers.items():
             await v.start()
-            print(f"{v} started")

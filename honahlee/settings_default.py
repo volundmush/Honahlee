@@ -46,7 +46,7 @@ SERVERS = {
         'port': 4101,
         'server_class': 'base',
         'protocol_class': 'telnet',
-        'tls': True
+        'tls': False
     }
 }
 
