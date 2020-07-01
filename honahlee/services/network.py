@@ -3,7 +3,7 @@ from honahlee.core import BaseService
 from honahlee.utils.misc import import_from_module
 
 
-class BaseServer:
+class ServerWrapper:
 
     def __init__(self, service, name, address, port, protocol, tls):
         self.service = service
@@ -18,15 +18,12 @@ class BaseServer:
 
     async def start(self):
         if not self.task:
-            loop = asyncio.get_running_loop()
-            self.server = await loop.create_server(lambda: self.protocol(self), host=self.address, port=self.port,
+            self.server = await asyncio.start_server(self.handle_connection, host=self.address, port=self.port,
                                                  ssl=None if not self.tls else self.service.ssl_context)
-            self.task = await loop.create_task(self.server.serve_forever())
-            print(self.task)
 
-    async def stop(self):
-        if self.task:
-            self.task.stop()
+    def handle_connection(self, reader, writer):
+        protocol = self.protocol(self, reader, writer)
+        asyncio.create_task(protocol.start())
 
     def register_connection(self, conn):
         self.connections[conn.uuid] = conn

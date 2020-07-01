@@ -4,3 +4,4 @@ tortoise-orm
 aiosqlite
 hypercorn
 ujson
+twisted

@@ -133,8 +133,8 @@ class TelnetProtocol(BaseProtocol):
         TCODES.MCCP3: MCCP3Handler,
     }
 
-    def __init__(self, server):
-        super().__init__(server)
+    def __init__(self, server, reader, writer):
+        super().__init__(server, reader, writer)
         self.state = 0
         self.handlers = {key: value(self) for key, value in self.handler_classes.items()}
         self.command_buffer = bytearray()
@@ -148,19 +148,24 @@ class TelnetProtocol(BaseProtocol):
         for op_code, handler in sorted(self.handlers.items(), key=lambda x: x[1].order):
             handler.will()
 
-    def execute_iac_command(self, command, op_code):
+    async def execute_iac_command(self, command, op_code):
         if (handler := self.handlers.get(op_code, None)):
             # Support this feature. Pass the command received up to its handler.
-            handler.receive_command(command)
+            await handler.receive_command(command)
         else:
             response = TCODES.DONT if command == TCODES.WILL else TCODES.DONT
             self.send_bytes(bytes([TCODES.IAC, response, op_code]))
             # No reason to respond to a random IAC WONT that wasn't preceded with a WILL/DO...
 
-    def execute_line(self, buffer):
-        pass
+    async def execute_line(self, buffer):
 
-    def execute_sb(self, op_code, data):
+        event = {
+            'type': 'telnet.line',
+            'contents': buffer.decode()
+        }
+        await self.queue_to_asgi.put(event)
+
+    async def execute_sb(self, op_code, data):
         if (handler := self.handlers.get(op_code, None)):
             # We support this feature. pass the data up to the handler.
             handler.receive_sb(data)
@@ -174,11 +179,7 @@ class TelnetProtocol(BaseProtocol):
             data = self.mccp2.compress(data) + self.mccp2.flush(zlib.Z_SYNC_FLUSH)
         self.final_send_bytes(data)
 
-    def data_received(self, data):
-        # Gotta stick MCCP3 handling in here shortly.. if mccp3, decompress incoming.
-        self.process_bytes(data)
-
-    def process_bytes(self, data):
+    async def receive_bytes(self, data):
         for b in data:
             # for DATA STATE
             if self.state == TSTATE.DATA:
@@ -215,7 +216,7 @@ class TelnetProtocol(BaseProtocol):
             if self.state == TSTATE.COMMAND:
                 # After receiving an IAC WILL, WONT, DO, or DONT, we must call execute_iac_command with the new byte.
                 # This is something like 'IAC WILL MCCP2'
-                self.execute_iac_command(self.command_mode, b)
+                await self.execute_iac_command(self.command_mode, b)
                 self.command_mode = 0
                 self.state = TSTATE.DATA
                 continue
@@ -238,7 +239,7 @@ class TelnetProtocol(BaseProtocol):
             if self.state == TSTATE.SUB_ESCAPED:
                 if b == TCODES.SE:
                     # End sub-negotiation!
-                    self.execute_sb(self.sb_command, self.sb_buffer)
+                    await self.execute_sb(self.sb_command, self.sb_buffer)
                     self.sb_command = 0
                     self.sb_buffer.clear()
                     self.state = TSTATE.DATA
@@ -251,7 +252,7 @@ class TelnetProtocol(BaseProtocol):
             if self.state == TSTATE.ENDLINE:
                 if b in (TCODES.LF, TCODES.IAC):
                     # The most common situation is that players are entering commands which terminate with CRLF (\r\n)
-                    self.execute_line(self.command_buffer)
+                    await self.execute_line(self.command_buffer)
                     self.command_buffer.clear()
                     self.state = TSTATE.DATA
                     continue
