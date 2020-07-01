@@ -3,3 +3,4 @@ uvloop
 tortoise-orm
 aiosqlite
 hypercorn
+ujson

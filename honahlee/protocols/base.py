@@ -4,10 +4,6 @@ import datetime
 
 
 class BaseProtocol(asyncio.Protocol):
-    """
-    This Protocol is abstract.
-    """
-    protocol_name = 'base'
 
     def __init__(self, server):
         self.server = server
