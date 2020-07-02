@@ -8,9 +8,11 @@ DATABASE_INIT = {
 }
 
 APPLICATION_CORE = "honahlee.core.Application"
+
 APPLICATION_SERVICES = {
     'database': 'honahlee.services.database.DatabaseService',
-    'network': 'honahlee.services.network.NetworkService'
+    'network': 'honahlee.services.network.NetworkService',
+    'web': 'honahlee.services.web.WebService'
 }
 
 SERVER_CLASSES = {
@@ -18,12 +20,13 @@ SERVER_CLASSES = {
 }
 
 PROTOCOL_CLASSES = {
-    'base': 'honahlee.protocols.base.BaseProtocol',
-    'telnet': 'honahlee.protocols.telnet.TelnetProtocol'
+    'telnet': 'honahlee.protocols.telnet.TelnetProtocol',
 }
 
-GAME_CLIENT_INTERFACE = "0.0.0.0"
-SERVER_CLIENT_INTERFACE = "0.0.0.0"
+# The interface that the server will bind to, and the port for web services.
+# Keep in mind that 80 requires running as root.
+INTERFACE = "10.0.0.226"
+WEB_PORT = 8000
 
 # This needs to contain a path to your TLS certificate to enable TLS.
 TLS = {
@@ -35,19 +38,15 @@ TLS = {
 # configured.
 SERVERS = {
     'telnet': {
-        'address': GAME_CLIENT_INTERFACE,
         'port': 4100,
         'server_class': 'base',
         'protocol_class': 'telnet',
         'tls': False
     },
     'telnet_tls': {
-        'address': GAME_CLIENT_INTERFACE,
         'port': 4101,
         'server_class': 'base',
         'protocol_class': 'telnet',
         'tls': False
     }
 }
-
-PLUGIN_PATHS = []

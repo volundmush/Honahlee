@@ -1,4 +1,4 @@
-from honahlee.protocols.base import BaseProtocol
+from honahlee.protocols.base import ASGIProtocol
 import zlib
 
 
@@ -51,25 +51,25 @@ class TelnetOptionHandler:
         self.enabled = False
         self.sent = 0
 
-    def enable(self):
+    async def enable(self):
         pass
 
-    def disable(self):
+    async def disable(self):
         pass
 
-    def send_command(self, command):
+    async def send_command(self, command):
         self.sent = command
-        self.protocol.send_bytes(bytes([TCODES.IAC, command, self.op_code]))
+        await self.protocol.send_bytes(bytes([TCODES.IAC, command, self.op_code]))
 
-    def will(self):
-        self.send_command(TCODES.WILL)
+    async def will(self):
+        await self.send_command(TCODES.WILL)
 
-    def receive_command(self, command):
+    async def receive_command(self, command):
         if command in CODES_REFUSE:
             # Not much to do here - disable if enabled, and otherwise carry on.
             if self.enabled:
                 # The client has signaled to us that we should stop using this feature.
-                self.disable()
+                await self.disable()
                 self.enabled = False
             return
 
@@ -82,16 +82,16 @@ class TelnetOptionHandler:
             # The client is (probably?) answering us affirmatively. It could also be that we both say 'do this'
             # before receiving the other's IAC WILL/DO and replying. However, if we didn't send this code, then
             # we need to respond with its correlation.
-            self.send_command(TCODES.WILL if command == TCODES.DO else TCODES.DO)
-        self.enable()
+            await self.send_command(TCODES.WILL if command == TCODES.DO else TCODES.DO)
+        await self.enable()
         self.enabled = True
         self.sent = 0
 
-    def receive_sb(self, data):
+    async def receive_sb(self, data):
         pass
 
-    def send_sb(self, data):
-        self.protocol.send_bytes(bytes([TCODES.IAC, TCODES.SB, self.op_code, *data, TCODES.IAC, TCODES.SE]))
+    async def send_sb(self, data):
+        await self.protocol.send_bytes(bytes([TCODES.IAC, TCODES.SB, self.op_code, *data, TCODES.IAC, TCODES.SE]))
 
 
 class MXPHandler(TelnetOptionHandler):
@@ -101,15 +101,15 @@ class MXPHandler(TelnetOptionHandler):
 class MCCP2Handler(TelnetOptionHandler):
     op_code = TCODES.MCCP2
 
-    def enable(self):
-        self.send_sb([])
+    async def enable(self):
+        await self.send_sb([])
         self.protocol.mccp2 = zlib.compressobj(9)
 
 
 class MCCP3Handler(TelnetOptionHandler):
     op_code = TCODES.MCCP3
 
-    def receive_sb(self, data):
+    async def receive_sb(self, data):
         # MCCP3 can only be sending us one thing, so we're gonna ignore
         self.protocol.mccp3 = zlib.decompressobj()
 
@@ -125,7 +125,7 @@ class TSTATE:
     ENDLINE = 6
 
 
-class TelnetProtocol(BaseProtocol):
+class TelnetProtocol(ASGIProtocol):
 
     handler_classes = {
         TCODES.MXP: MXPHandler,
@@ -133,8 +133,8 @@ class TelnetProtocol(BaseProtocol):
         TCODES.MCCP3: MCCP3Handler,
     }
 
-    def __init__(self, server, reader, writer):
-        super().__init__(server, reader, writer)
+    def __init__(self, server):
+        super().__init__(server)
         self.state = 0
         self.handlers = {key: value(self) for key, value in self.handler_classes.items()}
         self.command_buffer = bytearray()
@@ -144,9 +144,9 @@ class TelnetProtocol(BaseProtocol):
         self.mccp2 = None
         self.mccp3 = None
 
-    def on_connection_made(self, transport):
+    async def setup(self):
         for op_code, handler in sorted(self.handlers.items(), key=lambda x: x[1].order):
-            handler.will()
+            await handler.will()
 
     async def execute_iac_command(self, command, op_code):
         if (handler := self.handlers.get(op_code, None)):
@@ -154,32 +154,39 @@ class TelnetProtocol(BaseProtocol):
             await handler.receive_command(command)
         else:
             response = TCODES.DONT if command == TCODES.WILL else TCODES.DONT
-            self.send_bytes(bytes([TCODES.IAC, response, op_code]))
-            # No reason to respond to a random IAC WONT that wasn't preceded with a WILL/DO...
+            await self.send_bytes(bytes([TCODES.IAC, response, op_code]))
 
     async def execute_line(self, buffer):
-
+        text = buffer.decode()
         event = {
             'type': 'telnet.line',
-            'contents': buffer.decode()
+            'content': text
         }
-        await self.queue_to_asgi.put(event)
+        print(f"RECEIVED TELNET: {text}")
+        await self.forward_writer.put(event)
+        await self.send_bytes(b'TELNET ECHO: ' + buffer + b'\r\n')
+
 
     async def execute_sb(self, op_code, data):
         if (handler := self.handlers.get(op_code, None)):
             # We support this feature. pass the data up to the handler.
-            handler.receive_sb(data)
+            await handler.receive_sb(data)
         else:
-            # We do not support this feature. let's complain I guess? Gotta check specs.
+            # We do not support this feature. let's complain, I guess? Gotta check specs.
             pass
 
-    def send_bytes(self, data):
+    async def send_bytes(self, data):
         # if mccp2, compress outgoing
         if self.mccp2:
             data = self.mccp2.compress(data) + self.mccp2.flush(zlib.Z_SYNC_FLUSH)
-        self.final_send_bytes(data)
+        self.writer.write(data)
+        await self.writer.drain()
 
-    async def receive_bytes(self, data):
+    async def handle_reader(self, data):
+        if self.mccp3:
+            data = self.mccp3.decompress(data) # probably not how this works just yet.
+        # 'data' is just a byte array at this point so...
+
         for b in data:
             # for DATA STATE
             if self.state == TSTATE.DATA:

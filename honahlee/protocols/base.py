@@ -1,95 +1,62 @@
 import asyncio
-import uuid
-import datetime
 
 
-class BaseProtocol:
+class ASGIProtocol:
 
-    def __init__(self, server, reader, writer):
+    def __init__(self, server):
         self.server = server
-        self.service = server.service
-        self.app = self.service.app
+        self.scope = None
+        self.forward_scope = dict()
+        self.forward_reader = asyncio.Queue()
+        self.forward_writer = asyncio.Queue()
+        self.reader = None
+        self.writer = None
+        self.reader_task = None
+        self.writer_task = None
+        self.forward_reader_task = None
+        self.forward_writer_task = None
+
+    async def accept_asgi(self, scope, reader, writer):
+        """
+        This is the 'entry point' into this ASGI application.
+        """
+        self.scope = scope
         self.reader = reader
         self.writer = writer
-        self.bytes_sent = 0
-        self.bytes_received = 0
-        self.creation_datetime = datetime.datetime.utcnow()
-        self.last_received = datetime.datetime.utcnow()
-        self.last_sent = datetime.datetime.utcnow()
-        self.queue_to_asgi = asyncio.Queue()
-        self.queue_from_asgi = asyncio.Queue()
-        self.send_task = None
-        self.scope = dict()
+        await self.setup()
+        self.reader_task = asyncio.create_task(self.run_reader())
+        self.writer_task = asyncio.create_task(self.run_forward_writer())
 
-    async def start(self):
-        asyncio.create_task(self.read_task())
-        asyncio.create_task(self.write_task())
+    async def setup(self):
+        """
+        Customizable hook meant to setup this object once accept_asgi is called.
+        """
 
-    async def read_task(self):
+    async def run_reader(self):
+        """
+        A loop that continuously checks for events coming in from the ASGI reader.
+        """
         while True:
-            data = await self.reader.read()
-            if not data:
-                # This means we received an EOF. not sure how to handle this yet.
-                break
-            await self.data_received(data)
+            data = await self.reader.read(4096)
+            if data:
+                await self.handle_reader(data)
 
-    async def data_received(self, data):
+    async def handle_reader(self, data):
         """
-        Receives bytes from transport and does book-keeping. Calls receive_bytes for subclass implementation.
+        This method decides what to do with the message sent to it from the reader.
         """
-        self.bytes_received += len(data)
-        self.last_received = datetime.datetime.utcnow()
-        await self.receive_bytes(data)
-
-    async def receive_bytes(self, data):
         pass
 
-    async def write_task(self):
+    async def run_forward_writer(self):
+        """
+        Loop that continuously checks for events sent from the next level 'up'.
+        """
         while True:
-            event = await self.queue_from_asgi.get()
-            await self.event_received(event)
+            data = await self.forward_writer.get()
+            if data:
+                await self.handle_forward_writer(data)
 
-    async def event_received(self, event):
-        pass
-
-    def connection_made(self, transport):
+    async def handle_forward_writer(self, data):
         """
-        Generates ID, registers the connection and calls the on_connection_made hook.
+        Decode events sent from the next level up... and do something with them.
         """
-        self.transport = transport
-
-        # I'm paranoid about conflicting IDs no matter how impossible it's supposed to be.
-        while self.uuid is None:
-            maybe_id = uuid.uuid4()
-            if maybe_id not in self.service.connections:
-                self.uuid = maybe_id
-
-        self.server.register_connection(self)
-        self.on_connection_made(transport)
-
-    def on_connection_made(self, transport):
-        pass
-
-    def connection_lost(self, exc):
-        self.on_connection_lost(exc)
-        self.server.unregister_connection(self)
-
-    def on_connection_lost(self, exc):
-        pass
-
-    def connection_ready(self):
-        pass
-
-    def on_connection_ready(self):
-        pass
-
-    async def start_asgi(self):
-        asyncio.create_task(self.app.services['asgi'].asgi_incoming(self.scope, self.queue_to_asgi.get, self.queue_from_asgi.put))
-
-    def send_data(self, data):
-        self.send_bytes(data)
-
-    def send_bytes(self, data):
-        self.bytes_sent += len(data)
-        self.last_sent = datetime.datetime.now()
-        self.transport.write(data)

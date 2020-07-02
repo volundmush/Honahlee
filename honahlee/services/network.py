@@ -3,7 +3,7 @@ from honahlee.core import BaseService
 from honahlee.utils.misc import import_from_module
 
 
-class ServerWrapper:
+class BaseServer:
 
     def __init__(self, service, name, address, port, protocol, tls):
         self.service = service
@@ -18,22 +18,22 @@ class ServerWrapper:
 
     async def start(self):
         if not self.task:
-            self.server = await asyncio.start_server(self.handle_connection, host=self.address, port=self.port,
+            self.server = await asyncio.start_server(self.accept, host=self.address, port=self.port,
                                                  ssl=None if not self.tls else self.service.ssl_context)
+            #self.service.app.awaitables.append(self.server.serve_forever())
+            asyncio.create_task(self.server.serve_forever())
 
-    def handle_connection(self, reader, writer):
-        protocol = self.protocol(self, reader, writer)
-        asyncio.create_task(protocol.start())
+    async def stop(self):
+        if self.task:
+            self.task.cancel()
 
-    def register_connection(self, conn):
-        self.connections[conn.uuid] = conn
-        self.service.register_connection(conn)
-
-    def unregister_connection(self, conn):
-        del self.connections[conn.uuid]
-
+    async def accept(self, reader, writer):
+        new_protocol = self.protocol(self)
+        asyncio.create_task(new_protocol.accept_asgi(self, reader, writer))
+        print("ACCEPT COMPLETE")
 
 class NetworkService(BaseService):
+    setup_order = -900
 
     def __init__(self, app):
         super().__init__(app)
@@ -79,7 +79,7 @@ class NetworkService(BaseService):
         # do TLS init down here...
 
         for k, v in self.app.settings.SERVERS.items():
-            await self.create_server(k, v['address'], v['port'], v['server_class'], v['protocol_class'], v['tls'])
+            await self.create_server(k, self.app.settings.INTERFACE, v['port'], v['server_class'], v['protocol_class'], v['tls'])
 
     async def start(self):
         for k, v in self.servers.items():
