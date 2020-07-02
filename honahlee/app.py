@@ -30,11 +30,12 @@ async def main():
 
 if __name__ == "__main__":
     new_cwd = os.environ.get('HONAHLEE_PROFILE')
+    print(new_cwd)
     if not os.path.exists(new_cwd):
         raise ValueError("Improper Honahlee profile!")
     os.chdir(os.path.abspath(new_cwd))
     sys.path.insert(0, os.getcwd())
-    sys.stdout = open('honah.log', 'a+')
+    #sys.stdout = open('honah.log', 'a+')
 
     pidfile = os.path.join('.', 'server.pid')
     with open(pidfile, 'w') as p:
@@ -43,4 +44,6 @@ if __name__ == "__main__":
         print(os.getpid())
 
     uvloop.install()
-    asyncio.run(main(), debug=True)
+    loop = asyncio.get_event_loop()
+    asyncio.ensure_future(main())
+    loop.run_forever()

@@ -1,63 +1,62 @@
 import asyncio
-import uuid
-import datetime
 
 
-class BaseProtocol(asyncio.Protocol):
+class ASGIProtocol:
 
     def __init__(self, server):
         self.server = server
-        self.service = server.service
-        self.app = self.service.app
-        self.transport = None
-        self.client = None
-        self.uuid = None
-        self.bytes_sent = 0
-        self.bytes_received = 0
-        self.creation_datetime = datetime.datetime.utcnow()
-        self.last_received = datetime.datetime.utcnow()
-        self.last_sent = datetime.datetime.utcnow()
+        self.scope = None
+        self.forward_scope = dict()
+        self.forward_reader = asyncio.Queue()
+        self.forward_writer = asyncio.Queue()
+        self.reader = None
+        self.writer = None
+        self.reader_task = None
+        self.writer_task = None
+        self.forward_reader_task = None
+        self.forward_writer_task = None
 
-    def data_received(self, data):
+    async def accept_asgi(self, scope, reader, writer):
         """
-        Receives bytes from transport and does book-keeping. Calls receive_bytes for subclass implementation.
+        This is the 'entry point' into this ASGI application.
         """
-        self.bytes_received += len(data)
-        self.last_received = datetime.datetime.utcnow()
-        self.receive_bytes(data)
+        self.scope = scope
+        self.reader = reader
+        self.writer = writer
+        await self.setup()
+        self.reader_task = asyncio.create_task(self.run_reader())
+        self.writer_task = asyncio.create_task(self.run_forward_writer())
 
-    def receive_bytes(self, data):
+    async def setup(self):
+        """
+        Customizable hook meant to setup this object once accept_asgi is called.
+        """
+
+    async def run_reader(self):
+        """
+        A loop that continuously checks for events coming in from the ASGI reader.
+        """
+        while True:
+            data = await self.reader.read(4096)
+            if data:
+                await self.handle_reader(data)
+
+    async def handle_reader(self, data):
+        """
+        This method decides what to do with the message sent to it from the reader.
+        """
         pass
 
-    def connection_made(self, transport):
+    async def run_forward_writer(self):
         """
-        Generates ID, registers the connection and calls the on_connection_made hook.
+        Loop that continuously checks for events sent from the next level 'up'.
         """
-        self.transport = transport
+        while True:
+            data = await self.forward_writer.get()
+            if data:
+                await self.handle_forward_writer(data)
 
-        # I'm paranoid about conflicting IDs no matter how impossible it's supposed to be.
-        while self.uuid is None:
-            maybe_id = uuid.uuid4()
-            if maybe_id not in self.service.connections:
-                self.uuid = maybe_id
-
-        self.server.register_connection(self)
-        self.on_connection_made(transport)
-
-    def on_connection_made(self, transport):
-        pass
-
-    def connection_lost(self, exc):
-        self.on_connection_lost(exc)
-        self.server.unregister_connection(self)
-
-    def on_connection_lost(self, exc):
-        pass
-
-    def send_data(self, data):
-        self.send_bytes(data)
-
-    def send_bytes(self, data):
-        self.bytes_sent += len(data)
-        self.last_sent = datetime.datetime.now()
-        self.transport.write(data)
+    async def handle_forward_writer(self, data):
+        """
+        Decode events sent from the next level up... and do something with them.
+        """

@@ -18,25 +18,22 @@ class BaseServer:
 
     async def start(self):
         if not self.task:
-            loop = asyncio.get_running_loop()
-            self.server = await loop.create_server(lambda: self.protocol(self), host=self.address, port=self.port,
+            self.server = await asyncio.start_server(self.accept, host=self.address, port=self.port,
                                                  ssl=None if not self.tls else self.service.ssl_context)
-            self.task = await loop.create_task(self.server.serve_forever())
-            print(self.task)
+            #self.service.app.awaitables.append(self.server.serve_forever())
+            asyncio.create_task(self.server.serve_forever())
 
     async def stop(self):
         if self.task:
-            self.task.stop()
+            self.task.cancel()
 
-    def register_connection(self, conn):
-        self.connections[conn.uuid] = conn
-        self.service.register_connection(conn)
-
-    def unregister_connection(self, conn):
-        del self.connections[conn.uuid]
-
+    async def accept(self, reader, writer):
+        new_protocol = self.protocol(self)
+        asyncio.create_task(new_protocol.accept_asgi(self, reader, writer))
+        print("ACCEPT COMPLETE")
 
 class NetworkService(BaseService):
+    setup_order = -900
 
     def __init__(self, app):
         super().__init__(app)
@@ -82,7 +79,7 @@ class NetworkService(BaseService):
         # do TLS init down here...
 
         for k, v in self.app.settings.SERVERS.items():
-            await self.create_server(k, v['address'], v['port'], v['server_class'], v['protocol_class'], v['tls'])
+            await self.create_server(k, self.app.settings.INTERFACE, v['port'], v['server_class'], v['protocol_class'], v['tls'])
 
     async def start(self):
         for k, v in self.servers.items():
