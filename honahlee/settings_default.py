@@ -10,23 +10,23 @@ DATABASE_INIT = {
 APPLICATION_CORE = "honahlee.core.Application"
 
 APPLICATION_SERVICES = {
-    'database': 'honahlee.services.database.DatabaseService',
+    #'database': 'honahlee.services.database.DatabaseService',
     'network': 'honahlee.services.network.NetworkService',
-    'web': 'honahlee.services.web.WebService'
+    #'web': 'honahlee.services.web.WebService'
 }
 
 SERVER_CLASSES = {
-    'base': 'honahlee.services.network.BaseServer'
+    'base': 'honahlee.services.network.HonahleeServerFactory'
 }
 
 PROTOCOL_CLASSES = {
-    'telnet': 'honahlee.protocols.telnet.TelnetProtocol',
+    'telnet': 'honahlee.protocols.telnet.MudTelnetProtocol',
 }
 
 # The interface that the server will bind to, and the port for web services.
 # Keep in mind that 80 requires running as root.
 INTERFACE = "10.0.0.226"
-WEB_PORT = 8000
+WEB_PORT = 8001
 
 # This needs to contain a path to your TLS certificate to enable TLS.
 TLS = {

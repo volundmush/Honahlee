@@ -1,15 +1,26 @@
 #!/usr/bin/env python3.8
-
-import asyncio
 import importlib
 import os
 import sys
 
+import asyncio
 import uvloop
+from twisted.internet import asyncioreactor
+
 from honahlee.utils.misc import import_from_module
 
+# Make sure we will be running the AsyncioReactor for Twisted with Uvloop going.
+# MAX SPEED BABY
+loop = uvloop.new_event_loop()
+asyncio.set_event_loop(loop)
+asyncioreactor.install(eventloop=asyncio.get_event_loop())
 
-async def main():
+# Making sure that this is imported here so it won't try and install a different reactor
+# from here on.
+from twisted.internet import reactor
+
+
+def main():
 
     # Step 1: get settings from profile.
     try:
@@ -19,14 +30,16 @@ async def main():
 
     # Step 2: Locate application Core from settings. Instantiate
     # application core and inject settings into it.
+    # This doesn't have anything to do with Twisted's own Application framework.
     core_class = import_from_module(settings.APPLICATION_CORE)
     app_core = core_class(settings)
 
     # Step 3: Load application from core.
-    await app_core.setup()
+    app_core.setup()
 
     # Step 4: Start everything up and run forever.
-    await app_core.start()
+    app_core.start()
+    reactor.run()
 
 if __name__ == "__main__":
     new_cwd = os.environ.get('HONAHLEE_PROFILE')
@@ -43,7 +56,4 @@ if __name__ == "__main__":
         print(pidfile)
         print(os.getpid())
 
-    uvloop.install()
-    loop = asyncio.get_event_loop()
-    asyncio.ensure_future(main())
-    loop.run_forever()
+    main()

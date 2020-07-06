@@ -1,5 +1,4 @@
 from honahlee.utils.misc import import_from_module
-import asyncio
 
 
 class BaseApplication:
@@ -9,19 +8,17 @@ class BaseApplication:
         self.services = dict()
         self.awaitables = list()
 
-    async def setup(self):
+    def setup(self):
         for k, v in self.settings.APPLICATION_SERVICES.items():
             service_class = import_from_module(v)
             self.services[k] = service_class(self)
 
         for service in sorted(self.services.values(), key=lambda s: s.setup_order):
-            await service.setup()
+            service.setup()
 
-    async def start(self):
+    def start(self):
         for service in sorted(self.services.values(), key=lambda s: s.start_order):
-            await service.start()
-
-        #await asyncio.gather(*self.awaitables)
+            service.start()
 
 
 class Application(BaseApplication):
@@ -35,8 +32,8 @@ class BaseService:
     def __init__(self, app):
         self.app = app
 
-    async def setup(self):
+    def setup(self):
         pass
 
-    async def start(self):
+    def start(self):
         pass

@@ -1,9 +1,10 @@
-import asyncio
 from honahlee.core import BaseService
 from honahlee.utils.misc import import_from_module
+from twisted.internet.protocol import ServerFactory
+from twisted.internet import ssl
 
 
-class BaseServer:
+class HonahleeServerFactory(ServerFactory):
 
     def __init__(self, service, name, address, port, protocol, tls):
         self.service = service
@@ -12,25 +13,8 @@ class BaseServer:
         self.port = port
         self.protocol = protocol
         self.tls = tls
-        self.task = None
-        self.server = None
-        self.connections = dict()
+        self.listener = None
 
-    async def start(self):
-        if not self.task:
-            self.server = await asyncio.start_server(self.accept, host=self.address, port=self.port,
-                                                 ssl=None if not self.tls else self.service.ssl_context)
-            #self.service.app.awaitables.append(self.server.serve_forever())
-            asyncio.create_task(self.server.serve_forever())
-
-    async def stop(self):
-        if self.task:
-            self.task.cancel()
-
-    async def accept(self, reader, writer):
-        new_protocol = self.protocol(self)
-        asyncio.create_task(new_protocol.accept_asgi(self, reader, writer))
-        print("ACCEPT COMPLETE")
 
 class NetworkService(BaseService):
     setup_order = -900
@@ -50,7 +34,7 @@ class NetworkService(BaseService):
     def register_protocol_class(self, name, protocol_class):
         self.protocol_classes[name] = protocol_class
 
-    async def create_server(self, name, address, port, server_class, protocol_class, tls):
+    def create_server(self, name, address, port, server_class, protocol_class, tls):
         if name in self.servers:
             raise ValueError("That name conflicts with an existing server!")
         if not (srv_class := self.server_classes.get(server_class, None)):
@@ -61,6 +45,11 @@ class NetworkService(BaseService):
             raise ValueError("TLS is not properly configured. Cannot start TLS server.")
         new_server = srv_class(self, name, address, port, prot_class, tls)
         self.servers[name] = new_server
+        from twisted.internet import reactor
+        if tls:
+            pass
+        else:
+            new_server.listener = reactor.listenTCP(port, new_server, interface=address)
         return new_server
 
     def register_connection(self, conn):
@@ -69,7 +58,7 @@ class NetworkService(BaseService):
     def unregister_connection(self, conn):
         del self.connections[conn.uuid]
 
-    async def setup(self):
+    def setup(self):
         for k, v in self.app.settings.SERVER_CLASSES.items():
             srv_class = import_from_module(v)
             self.register_server_class(k, srv_class)
@@ -79,8 +68,9 @@ class NetworkService(BaseService):
         # do TLS init down here...
 
         for k, v in self.app.settings.SERVERS.items():
-            await self.create_server(k, self.app.settings.INTERFACE, v['port'], v['server_class'], v['protocol_class'], v['tls'])
+            self.create_server(k, self.app.settings.INTERFACE, v['port'], v['server_class'], v['protocol_class'], v['tls'])
 
-    async def start(self):
+    def start(self):
         for k, v in self.servers.items():
-            await v.start()
+            pass
+            #v.listener.startListening()

@@ -1,7 +1,6 @@
 pytz
 uvloop
-tortoise-orm
-aiosqlite
-hypercorn
+django
 ujson
 twisted
+websockets

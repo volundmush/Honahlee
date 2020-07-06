@@ -1,269 +1,473 @@
-from honahlee.protocols.base import ASGIProtocol
+from twisted.conch import telnet as t
+from twisted.python.compat import iterbytes
+from codecs import encode as codecs_encode
 import zlib
 
-
-class TCODES:
-    NUL = 0
-    BEL = 7
-    CR = 13
-    LF = 10
-    SGA = 3
-    NAWS = 31
-    SE = 240
-    NOP = 241
-    GA = 249
-    SB = 250
-    WILL = 251
-    WONT = 252
-    DO = 253
-    DONT = 254
-    IAC = 255
-
-    # Adding more codes to the Telnet codes available.
-    # MUD eXtension Protocol
-    MXP = 91
-
-    # Mud Server Status Protocol
-    MSSP = 70
-
-    # Mud Client Compression Protocol
-    MCCP2 = 86
-    MCCP3 = 87
-
-    # Generic Mud Communication Protocol
-    GMCP = 201
-
-    # Mud Server Data Protocol
-    MSDP = 69
-
-
-CODES_COMMAND = [TCODES.DONT, TCODES.WONT, TCODES.WILL, TCODES.DO]
-CODES_REFUSE = [TCODES.DONT, TCODES.WONT]
-CODES_ACCEPT = [TCODES.WILL, TCODES.DO]
+# Much of this code has been adapted from the Evennia project https://github.com/evennia/evennia
+# Credit where credit is due.
 
 
 class TelnetOptionHandler:
+    # op_code must be the byte that represents this option.
     op_code = None
+    op_name = 'N\A'
+
     order = 0
+
+    # If true, this OptionHandler will send a WILL <op_code> during protocol setup.
+    will = False
+    # if True, this optionhandler will send a DO <op>ccode> during protocol setup.
+    do = False
+    # For the love of pete, don't combine the above two. One or the other.
+
+    # if true, this OptionHandler will be registered for SubNegotiation commands.
+    sb = False
 
     def __init__(self, protocol):
         self.protocol = protocol
         self.enabled = False
         self.sent = 0
+        if self.sb:
+            protocol.negotiationMap[self.op_code] = self.receive_sb
+        self.state = protocol.getOptionState(self.op_code)
 
-    async def enable(self):
+    def start(self):
+        if self.will:
+            d = self.protocol.will(self.op_code)
+            d.addCallbacks(self.will_result, self.will_result)
+        if self.do:
+            d = self.protocol.do(self.op_code)
+            d.addCallbacks(self.do_result, self.do_result)
+
+    def will_result(self, answer):
+        # Do not simplify this. 'answer' might be an Exception...
+        if answer == True:
+            self.enableLocal()
+
+    def do_result(self, answer):
+        if answer == True:
+            self.enableLocal()
+
+    def disableLocal(self):
+        self.protocol.protocol_flags[self.op_name] = False
+        self.disable()
+
+    def disableRemote(self):
+        self.protocol.protocol_flags[self.op_name] = False
+        self.disable()
+
+    def disable(self):
         pass
 
-    async def disable(self):
+    def enableLocal(self):
+        self.protocol.protocol_flags[self.op_name] = True
+        self.enable()
+
+    def enableRemote(self):
+        self.protocol.protocol_flags[self.op_name] = True
+        self.enable()
+
+    def enable(self):
         pass
 
-    async def send_command(self, command):
-        self.sent = command
-        await self.protocol.send_bytes(bytes([TCODES.IAC, command, self.op_code]))
-
-    async def will(self):
-        await self.send_command(TCODES.WILL)
-
-    async def receive_command(self, command):
-        if command in CODES_REFUSE:
-            # Not much to do here - disable if enabled, and otherwise carry on.
-            if self.enabled:
-                # The client has signaled to us that we should stop using this feature.
-                await self.disable()
-                self.enabled = False
-            return
-
-        # if we've reached this point, 'command' is either a WILL or DO.
-        if self.enabled:
-            # We erroneously received a an accept after already enabling. Ignore this.
-            return
-
-        if self.sent not in CODES_ACCEPT:
-            # The client is (probably?) answering us affirmatively. It could also be that we both say 'do this'
-            # before receiving the other's IAC WILL/DO and replying. However, if we didn't send this code, then
-            # we need to respond with its correlation.
-            await self.send_command(TCODES.WILL if command == TCODES.DO else TCODES.DO)
-        await self.enable()
-        self.enabled = True
-        self.sent = 0
-
-    async def receive_sb(self, data):
+    def receive_sb(self, data):
         pass
 
-    async def send_sb(self, data):
-        await self.protocol.send_bytes(bytes([TCODES.IAC, TCODES.SB, self.op_code, *data, TCODES.IAC, TCODES.SE]))
+    def send_sb(self, data):
+        self.protocol._write(t.IAC + t.SB + self.op_code + data + t.IAC + t.SE)
+
+
+class SGAHandler(TelnetOptionHandler):
+    op_code = t.SGA
+    op_name = "SGA"
+    will = True
 
 
 class MXPHandler(TelnetOptionHandler):
-    op_code = TCODES.MXP
+    op_code = bytes([91])
+    op_name = 'MXP'
+
+
+class NAWSHandler(TelnetOptionHandler):
+    op_code = t.NAWS
+    op_name = 'NAWS'
+    # For some reason, official spec says that the server must open up with a DO. No SERVER WILL. Weird.
+    # Why? I dunno. Ffffffing telnet.
+    do = True
+    sb = True
+
+    def __init__(self, protocol):
+        super().__init__(protocol)
+
+    def receive_sb(self, data):
+        if len(data) == 4:
+            # NAWS is negotiated with 16bit words
+            new_width = int(codecs_encode(data[0:1], "hex"), 16)
+            new_height = int(codecs_encode(data[2:3], "hex"), 16)
+
+            if new_width != self.width:
+                self.change_width(new_width)
+            if new_height != self.height:
+                self.change_height(new_height)
+
+    def change_width(self, new_width):
+        self.protocol.protocol_flags["SCREENWIDTH"] = new_width
+
+    def change_height(self, new_height):
+        self.protocol.protocol_flags["SCREENHEIGHT"] = new_height
+
+
+class TTYPEHandler(TelnetOptionHandler):
+    op_code = bytes([24])
+    op_name = "TTYPE"
+    will = True
+    sb = True
+
+    MTTS = [
+        (128, "PROXY"),
+        (64, "SCREENREADER"),
+        (32, "OSC_COLOR_PALETTE"),
+        (16, "MOUSE_TRACKING"),
+        (8, "XTERM256"),
+        (4, "UTF-8"),
+        (2, "VT100"),
+        (1, "ANSI"),
+    ]
+
+    def __init__(self, protocol):
+        super().__init__(protocol)
+        self.counter = 0
+        self.name_bytes = None
+
+    def enable(self):
+        self.request()
+
+    def request(self):
+        # IAC SB TTYPE SEND IAC SE
+        self.send_sb(bytes([1]))
+
+    def set_client(self, name):
+        name = name.upper()
+        self.protocol.protocol_flags["CLIENT_NAME"] = name
+
+        # use name to identify support for xterm256. Many of these
+        # only support after a certain version, but all support
+        # it since at least 4 years. We assume recent client here for now.
+        xterm256 = False
+        if name.startswith("MUDLET"):
+            name, version = name.split()
+            name = name.strip()
+            version = version.strip()
+            self.protocol.protocol_flags["CLIENT_VERSION"] = version
+            self.protocol.protocol_flags["CLIENT_NAME"] = name
+
+            # supports xterm256 stably since 1.1 (2010?)
+            xterm256 = version >= "1.1"
+            self.protocol.protocol_flags["FORCEDENDLINE"] = False
+
+        if name.startswith("TINTIN++"):
+            self.protocol.protocol_flags["FORCEDENDLINE"] = True
+
+        if (
+                name.startswith("XTERM")
+                or name.endswith("-256COLOR")
+                or name
+                in (
+                "ATLANTIS",  # > 0.9.9.0 (aug 2009)
+                "CMUD",  # > 3.04 (mar 2009)
+                "KILDCLIENT",  # > 2.2.0 (sep 2005)
+                "MUDLET",  # > beta 15 (sep 2009)
+                "MUSHCLIENT",  # > 4.02 (apr 2007)
+                "PUTTY",  # > 0.58 (apr 2005)
+                "BEIP",  # > 2.00.206 (late 2009) (BeipMu)
+                "POTATO",  # > 2.00 (maybe earlier)
+                "TINYFUGUE",  # > 4.x (maybe earlier)
+        )
+        ):
+            xterm256 = True
+
+        # all clients supporting TTYPE at all seem to support ANSI
+        self.protocol.protocol_flags["XTERM256"] = xterm256
+        self.protocol.protocol_flags["XTERM256"] = True
+
+    def set_capabilities(self, data):
+        # this is a term capabilities flag
+        term = data
+        tupper = term.upper()
+        # identify xterm256 based on flag
+        xterm256 = (
+                tupper.endswith("-256COLOR")
+                or tupper.endswith("XTERM")  # Apple Terminal, old Tintin
+                and not tupper.endswith("-COLOR")  # old Tintin, Putty
+        )
+        if xterm256:
+            self.protocol.protocol_flags["ANSI"] = True
+            self.protocol.protocol_flags["XTERM256"] = xterm256
+        self.protocol.protocol_flags["TERM"] = term
+
+    def set_mtts(self, data):
+        # the MTTS bitstring identifying term capabilities
+        if data.startswith("MTTS"):
+            option = data[4:].strip()
+
+            if option.isdigit():
+                # a number - determine the actual capabilities
+                option = int(option)
+                support = dict(
+                    (capability, True) for bitval, capability in self.MTTS if option & bitval > 0
+                )
+                self.protocol.protocol_flags.update(support)
+            else:
+                # some clients send erroneous MTTS as a string. Add directly.
+                self.protocol.protocol_flags[option.upper()] = True
+
+    def receive_sb(self, data):
+        if data[0] != bytes([0]):
+            # Received a malformed TTYPE answer. Let's ignore it for now.
+            return
+
+        # slice off that IS. we don't need it.
+        data = data[1:]
+
+        if self.counter == 0:
+            # This is the first time we're receiving a TTYPE IS.
+            client = data.decode("utf-8", errors='ignore')
+            self.set_client(client)
+            self.name_bytes = data
+            self.counter += 1
+            # Request round 2 of our data!
+            self.request()
+            return
+
+        if self.counter == 1:
+            if data == self.name_bytes:
+                # Some clients don't support giving further information. In that case, there's nothing
+                # more for TTYPE to do.
+                return
+            self.set_capabilities(data)
+            self.counter += 1
+            self.request()
+            return
+
+        if self.counter == 2:
+            self.set_mtts(data)
+            self.counter += 1
+            return
 
 
 class MCCP2Handler(TelnetOptionHandler):
-    op_code = TCODES.MCCP2
+    """
+    When MCCP2 is enabled, all of our outgoing bytes will be mccp2 compressed.
+    """
+    op_code = bytes([86])
+    op_name = 'MCCP2'
 
-    async def enable(self):
-        await self.send_sb([])
+    def enable(self):
+        self.send_sb(bytes([]))
+        self.enable_compression()
+
+    def enable_compression(self):
         self.protocol.mccp2 = zlib.compressobj(9)
+        self.protocol._write = self.protocol._write_mccp2
+
+    def disable(self):
+        self.disable_compression()
+
+    def disable_compression(self):
+        self.protocol._write = self.protocol._write_plain
+        self.protocol.mccp2 = None
 
 
 class MCCP3Handler(TelnetOptionHandler):
-    op_code = TCODES.MCCP3
+    op_code = bytes([87])
+    op_name = 'MCCP3'
 
-    async def receive_sb(self, data):
-        # MCCP3 can only be sending us one thing, so we're gonna ignore
-        self.protocol.mccp3 = zlib.decompressobj()
+    def receive_sb(self, data):
+        # MCCP3 can only be sending us one thing (IAC SB MCCP3 IAC SE), so we're gonna ignore the details.
+        if not data:
+            self.enable_compression()
 
+    def enable_compression(self):
+        self.protocol.mccp3 = zlib.decompressobj(9)
+        self.protocol.dataReceived = self.protocol._dataReceived_mccp3
 
-# Yeah this is basically an enum.
-class TSTATE:
-    DATA = 0
-    ESCAPED = 1
-    SUBNEGOTIATION = 2
-    IN_SUBNEGOTIATION = 3
-    SUB_ESCAPED = 4
-    COMMAND = 5
-    ENDLINE = 6
+    def disable(self):
+        self.disable_compression()
 
-
-class TelnetProtocol(ASGIProtocol):
-
-    handler_classes = {
-        TCODES.MXP: MXPHandler,
-        TCODES.MCCP2: MCCP2Handler,
-        TCODES.MCCP3: MCCP3Handler,
-    }
-
-    def __init__(self, server):
-        super().__init__(server)
-        self.state = 0
-        self.handlers = {key: value(self) for key, value in self.handler_classes.items()}
-        self.command_buffer = bytearray()
-        self.command_mode = 0
-        self.sb_buffer = bytearray()
-        self.sb_command = 0
-        self.mccp2 = None
-        self.mccp3 = None
-
-    async def setup(self):
-        for op_code, handler in sorted(self.handlers.items(), key=lambda x: x[1].order):
-            await handler.will()
-
-    async def execute_iac_command(self, command, op_code):
-        if (handler := self.handlers.get(op_code, None)):
-            # Support this feature. Pass the command received up to its handler.
-            await handler.receive_command(command)
-        else:
-            response = TCODES.DONT if command == TCODES.WILL else TCODES.DONT
-            await self.send_bytes(bytes([TCODES.IAC, response, op_code]))
-
-    async def execute_line(self, buffer):
-        text = buffer.decode()
-        event = {
-            'type': 'telnet.line',
-            'content': text
-        }
-        print(f"RECEIVED TELNET: {text}")
-        await self.forward_writer.put(event)
-        await self.send_bytes(b'TELNET ECHO: ' + buffer + b'\r\n')
+    def disable_compression(self):
+        self.protocol.dataReceived = self.protocol._dataReceived_plain
+        self.protocol.mccp3 = None
 
 
-    async def execute_sb(self, op_code, data):
-        if (handler := self.handlers.get(op_code, None)):
-            # We support this feature. pass the data up to the handler.
-            await handler.receive_sb(data)
-        else:
-            # We do not support this feature. let's complain, I guess? Gotta check specs.
+class MSSPHandler(TelnetOptionHandler):
+    """
+    It is the responsibility of the factory to report Mud Server Status Protocol data.
+    """
+    op_code = bytes([70])
+    op_name = "MSSP"
+
+    will = True
+
+    def enable(self):
+        response = None
+        try:
+            # On the off-chance that specific MSSP crawlers should be blocked, pass the protocol so the method
+            # has a way to know who's asking.
+            response = self.protocol.factory.generate_mssp_data(self.protocol)
+        except Exception as e:
+            pass
+        if response:
+            # this is not finished - still need to format response properly
+            # self.send_sb(response)
             pass
 
-    async def send_bytes(self, data):
-        # if mccp2, compress outgoing
-        if self.mccp2:
-            data = self.mccp2.compress(data) + self.mccp2.flush(zlib.Z_SYNC_FLUSH)
-        self.writer.write(data)
-        await self.writer.drain()
 
-    async def handle_reader(self, data):
-        if self.mccp3:
-            data = self.mccp3.decompress(data) # probably not how this works just yet.
-        # 'data' is just a byte array at this point so...
+class MSPHandler(TelnetOptionHandler):
+    """
+    Mud Sound Protocol - http://www.zuggsoft.com/zmud/msp.htm
+    Not to be confused with MSSP above.
+    """
+    op_code = bytes([90])
+    op_name = "MSP"
 
-        for b in data:
-            # for DATA STATE
-            if self.state == TSTATE.DATA:
-                if b == TCODES.IAC:
-                    # Receiving an IAC puts us in ESCAPED state.
-                    self.state = TSTATE.ESCAPED
-                    continue
-                if b == TCODES.CR:
-                    # Receiving an \r puts us in endline state.
-                    self.state = TSTATE.ENDLINE
-                    continue
-                # Anything else is just data.
-                self.command_buffer.append(b)
+    will = True
+
+    def play_sound(self):
+        pass
+
+    def stop_sound(self):
+        pass
+
+    def play_music(self):
+        pass
+
+    def stop_music(self):
+        pass
+
+
+class MudTelnetProtocol(t.Telnet):
+
+    default_protocol_flags = {
+        "ENCODING": "ascii",
+        "SCREENREADER": False,
+        "OSC_COLOR_PALETTE": False,
+        "MOUSE_TRACKING": False,
+        "PROXY": False,
+        "UTF-8": False,
+        "VT100": False,
+        "RAW": False,
+        "NOCOLOR": False,
+        "ANSI": False,
+        "XTERM256": False,
+        "CLIENT_NAME": "UNKNOWN",
+        "CLIENT_VERSION": "UNKNOWN",
+        "SCREENWIDTH": 78,
+        "SCREENHEIGHT": 24,
+        "GMCP": False,
+        "MXP": False,
+        "MCCP2": False,
+        "MCCP3": False,
+        "TTYPE": False,
+        "NAWS": False,
+        "SGA": False,
+        "LINEMODE": False,
+        "FORCEDENDLINE": False,
+    }
+
+    handler_classes = [MCCP2Handler, MCCP3Handler, SGAHandler, NAWSHandler, TTYPEHandler, MSSPHandler]
+
+    def enableRemote(self, option):
+        if (handler := self.handler_codes.get(option, None)):
+            handler.enableRemote()
+            return True
+
+    def enableLocal(self, option):
+        if (handler := self.handler_codes.get(option, None)):
+            handler.enableLocal()
+            return True
+
+    def disableLocal(self, option):
+        # Pass this request along to our handlers, if available.
+        if (handler := self.handler_codes.get(option, None)):
+            handler.disableLocal()
+
+    def disableRemote(self, option):
+        # Pass this message along to our handlers, if available.
+        if (handler := self.handler_codes.get(option, None)):
+            handler.disableRemote()
+
+    # Re-implements the normal _write to allow for MCCP2 outgoing.
+    def _write_plain(self, data):
+        self.transport.write(data)
+
+    def _write_mccp2(self, data):
+        self.transport.write(self.mccp2.compress(data) + self.mccp2.flush(zlib.Z_SYNC_FLUSH))
+
+    def _dataReceived_plain(self, data):
+        super().dataReceived(data)
+
+    def _dataReceived_mccp3(self, data):
+        pass
+
+    def __init__(self):
+        super().__init__()
+        # Clone a protocol flags dict from the class property.
+        self.protocol_flags = dict(self.default_protocol_flags)
+        # When MCCP2 is enabled/disabled, self._write is swapped between the two versions.
+        self._write = self._write_plain
+        # When MCCP3 is enabled/disabled, self.dataReceived is swapped between the two versions.
+        self.dataReceived = self._dataReceived_plain
+        self.data_buffer = []
+        self.command_list = []
+        self.app_state = 'newline'
+        self.handler_codes = dict()
+        self.handler_names = dict()
+        for h_class in self.handler_classes:
+            handler = h_class(self)
+            self.handler_codes[h_class.op_code] = handler
+            self.handler_names[h_class.op_name] = handler
+
+    def applicationDataReceived(self, data):
+        """
+        This is called by super().dataReceived() and it receives a pile of bytes.
+        This will never contain IAC-escaped sequences, but may contain other special
+        characters/symbols/bytes.
+        """
+        # First, append all the new data to our app buffer.
+
+        for b in iterbytes(data):
+
+            if b == t.NULL:
+                # Ignoring this ancient keepalive
+                # convert it to the IDLE COMMAND here...
+                self.command_list.append("IDLE")
+                continue
+            if b == t.LF:
+                self.command_list.append(b''.join(self.data_buffer))
+                self.data_buffer.clear()
                 continue
 
-            # for ESCAPED state, which begins with an IAC.
-            if self.state == TSTATE.ESCAPED:
-                if b in CODES_COMMAND:
-                    # Receiving WILl, WONT, DO, or DONT puts us in command mode where we await an option code.
-                    self.state = TSTATE.COMMAND
-                    self.command_mode = b
-                    continue
-                if b == TCODES.SB:
-                    # Receiving SB after IAC puts us in SUBNEGOTIATION mode.
-                    self.state = TSTATE.SUBNEGOTIATION
-                    self.sb_command = 0
-                    continue
-                if b == TCODES.IAC:
-                    # An IAC after an IAC is just an escape for byte 255. Append to command buffer and move on.
-                    self.state = TSTATE.DATA
-                    self.command_buffer.append(TCODES.IAC)
-                    continue
+            # Nothing else stands out? Append the data to data buffer...
+            self.data_buffer.append(b)
 
-            if self.state == TSTATE.COMMAND:
-                # After receiving an IAC WILL, WONT, DO, or DONT, we must call execute_iac_command with the new byte.
-                # This is something like 'IAC WILL MCCP2'
-                await self.execute_iac_command(self.command_mode, b)
-                self.command_mode = 0
-                self.state = TSTATE.DATA
-                continue
+        # We have pending commands. What're we gonna do with them?
+        for command in self.command_list:
+            self.decodeCommand(command)
+        self.command_list.clear()
 
-            if self.state == TSTATE.SUBNEGOTIATION:
-                # The byte immediately following an IAC SB is an op_code.
-                self.state = TSTATE.IN_SUBNEGOTIATION
-                self.sb_command = b
-                self.sb_buffer.clear()
-                continue
+    def decodeCommand(self, command):
+        """
+        Decodes user-entered command into preferred style, such as UTF-8.
 
-            if self.state == TSTATE.IN_SUBNEGOTIATION:
-                # After receiving IAC SB <code>, we begin appending to the sb_buffer until we get an IAC SE.
-                if b == TCODES.IAC:
-                    self.state = TSTATE.SUB_ESCAPED
-                    continue
-                self.sb_buffer.append(b)
-                continue
+        Args:
+            command (byte string): The user-entered command, minus terminating CRLF
+        """
+        decoded = command.decode("utf-8", errors='ignore')
+        print(f"SUCCESSFULLY DECODED COMMAND: {decoded}")
+        self._write(f"TELNET ECHO: {decoded}\r\n")
 
-            if self.state == TSTATE.SUB_ESCAPED:
-                if b == TCODES.SE:
-                    # End sub-negotiation!
-                    await self.execute_sb(self.sb_command, self.sb_buffer)
-                    self.sb_command = 0
-                    self.sb_buffer.clear()
-                    self.state = TSTATE.DATA
-                    continue
-                # Anything besides an SE will just become part of the buffer... and we go back to IN_SUBNEGOTIATION mode
-                self.sb_buffer.append(b)
-                self.state = TSTATE.IN_SUBNEGOTIATION
-                continue
+    def connectionMade(self):
 
-            if self.state == TSTATE.ENDLINE:
-                if b in (TCODES.LF, TCODES.IAC):
-                    # The most common situation is that players are entering commands which terminate with CRLF (\r\n)
-                    await self.execute_line(self.command_buffer)
-                    self.command_buffer.clear()
-                    self.state = TSTATE.DATA
-                    continue
-                # but otherwise, just keep appending to command buffer.
-                self.command_buffer.append(b)
-                self.state = TSTATE.DATA
-                continue
+        for handler in self.handler_codes.values():
+            if handler.will:
+                handler.start()
