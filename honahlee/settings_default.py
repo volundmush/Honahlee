@@ -12,7 +12,7 @@ APPLICATION_CORE = "honahlee.core.Application"
 APPLICATION_SERVICES = {
     #'database': 'honahlee.services.database.DatabaseService',
     'network': 'honahlee.services.network.NetworkService',
-    #'web': 'honahlee.services.web.WebService'
+    'web': 'honahlee.services.web.WebService'
 }
 
 SERVER_CLASSES = {

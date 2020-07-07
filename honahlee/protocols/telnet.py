@@ -326,6 +326,8 @@ class MSPHandler(TelnetOptionHandler):
     """
     Mud Sound Protocol - http://www.zuggsoft.com/zmud/msp.htm
     Not to be confused with MSSP above.
+
+    UNFINISHED: Do not activate.
     """
     op_code = bytes([90])
     op_name = "MSP"
@@ -464,7 +466,7 @@ class MudTelnetProtocol(t.Telnet):
         """
         decoded = command.decode("utf-8", errors='ignore')
         print(f"SUCCESSFULLY DECODED COMMAND: {decoded}")
-        self._write(f"TELNET ECHO: {decoded}\r\n")
+        self._write(b"TELNET ECHO: %s\r\n" % command)
 
     def connectionMade(self):
 
