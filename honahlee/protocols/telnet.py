@@ -1,10 +1,71 @@
-from twisted.conch import telnet as t
-from twisted.python.compat import iterbytes
+from honahlee.protocols.base import AsgiAdapterProtocol
 from codecs import encode as codecs_encode
 import zlib
 
 # Much of this code has been adapted from the Evennia project https://github.com/evennia/evennia
+# twisted.conch.telnet was also used for inspiration.
 # Credit where credit is due.
+
+
+class TCODES:
+    NUL = bytes([0])
+    BEL = bytes([7])
+    CR = bytes([13])
+    LF = bytes([10])
+    SGA = bytes([3])
+    NAWS = bytes([31])
+    SE = bytes([240])
+    NOP = bytes([241])
+    DM = bytes([242])
+    BRK = bytes([243])
+    IP = bytes([244])
+    AO = bytes([245])
+    AYT = bytes([246])
+    EC = bytes([247])
+    EL = bytes([248])
+    GA = bytes([249])
+    SB = bytes([250])
+    WILL = bytes([251])
+    WONT = bytes([252])
+    DO = bytes([253])
+    DONT = bytes([254])
+    IAC = bytes([255])
+
+    # Adding more codes to the Telnet codes available.
+    # MUD eXtension Protocol
+    MXP = bytes([91])
+
+    # Mud Server Status Protocol
+    MSSP = bytes([70])
+
+    # Mud Client Compression Protocol
+    MCCP2 = bytes([86])
+    MCCP3 = bytes([87])
+
+    # Generic Mud Communication Protocol
+    GMCP = bytes([201])
+
+    # Mud Server Data Protocol
+    MSDP = bytes([69])
+
+
+# Yeah this is basically an enum.
+class TSTATE:
+    DATA = 0
+    ESCAPED = 1
+    SUBNEGOTIATION = 2
+    IN_SUBNEGOTIATION = 3
+    SUB_ESCAPED = 4
+    COMMAND = 5
+    ENDLINE = 6
+
+
+class TelnetOptionState:
+
+    def __init__(self, handler):
+        self.handler = handler
+        self.enabled = False
+        self.negotiating = False
 
 
 class TelnetOptionHandler:
@@ -12,7 +73,9 @@ class TelnetOptionHandler:
     op_code = None
     op_name = 'N\A'
 
-    order = 0
+    start_order = 0
+    write_transform_order = 0
+    read_transform_order = 0
 
     # If true, this OptionHandler will send a WILL <op_code> during protocol setup.
     will = False
@@ -25,71 +88,99 @@ class TelnetOptionHandler:
 
     def __init__(self, protocol):
         self.protocol = protocol
-        self.enabled = False
-        self.sent = 0
+        self.us = TelnetOptionState(self)
+        self.them = TelnetOptionState(self)
+
         if self.sb:
             protocol.negotiationMap[self.op_code] = self.receive_sb
-        self.state = protocol.getOptionState(self.op_code)
 
-    def start(self):
-        if self.will:
-            d = self.protocol.will(self.op_code)
-            d.addCallbacks(self.will_result, self.will_result)
-        if self.do:
-            d = self.protocol.do(self.op_code)
-            d.addCallbacks(self.do_result, self.do_result)
+    async def recv_WILL(self):
 
-    def will_result(self, answer):
-        # Do not simplify this. 'answer' might be an Exception...
-        if answer == True:
-            self.enableLocal()
+        if self.us.negotiating:
+            # The client is enabling a feature on their end after we sent a DO.
+            self.us.negotiating = False
+            self.us.sent = None
+            self.them.enabled = True
+            await self.enableRemote()
+        else:
+            # If the above isn't true, then we are receiving a WILL from out of nowhere. That means the Remote Side
+            # wants to enable. We will answer an affirmative and enable it.
+            if not self.them.enabled:
+                self.them.enabled = True
+                await self.protocol.send_data(TCODES.DO)
+                await self.enableRemote()
 
-    def do_result(self, answer):
-        if answer == True:
-            self.enableLocal()
+    async def recv_WONT(self):
+        # We will not be answering this but let's see what needs doing...
 
-    def disableLocal(self):
-        self.protocol.protocol_flags[self.op_name] = False
-        self.disable()
+        if self.us.negotiating:
+            # We asked the remote party to enable this and they refused.
+            self.us.negotiating = False
+            await self.refusedRemote()
+        else:
+            # If we randomly received a WONT for a feature that we can use... we should disable this if it's enabled.
+            # Else, we're going to ignore this.
+            if self.them.enabled:
+                self.them.enabled = False
+                await self.disableRemote()
 
-    def disableRemote(self):
-        self.protocol.protocol_flags[self.op_name] = False
-        self.disable()
+    async def recv_DO(self):
+        if self.us.negotiating:
+            # We asked the client if we can use this, and they said yes.
+            self.us.negotiating = False
+            self.us.enabled = True
+            await self.enableLocal()
+        else:
+            # If the above isn't true, the client wants us to use this.
+            if not self.us.enabled:
+                self.us.enabled = True
+                await self.enableLocal()
 
-    def disable(self):
+    async def recv_DONT(self):
+        if self.us.negotiating:
+            # Well. We wanted to use this, but they say nope...
+            self.us.negotiating = False
+            await self.refusedLocal()
+
+    async def refusedLocal(self):
         pass
 
-    def enableLocal(self):
-        self.protocol.protocol_flags[self.op_name] = True
-        self.enable()
-
-    def enableRemote(self):
-        self.protocol.protocol_flags[self.op_name] = True
-        self.enable()
-
-    def enable(self):
+    async def refusedRemote(self):
         pass
 
-    def receive_sb(self, data):
+    async def disableLocal(self):
         pass
 
-    def send_sb(self, data):
-        self.protocol._write(t.IAC + t.SB + self.op_code + data + t.IAC + t.SE)
+    async def disableRemote(self):
+        pass
+
+    async def enableLocal(self):
+        pass
+
+    async def enableRemote(self):
+        pass
+
+    async def receive_sb(self, data):
+        pass
+
+    async def send_sb(self, data):
+        await self.protocol.send_data(TCODES.IAC + TCODES.SB + self.op_code + data + TCODES.IAC + TCODES.SE)
+
+    def read_transform(self, data):
+        return data
+
+    def write_transform(self, data):
+        return data
 
 
 class SGAHandler(TelnetOptionHandler):
-    op_code = t.SGA
+    op_code = TCODES.SGA
     op_name = "SGA"
     will = True
 
 
-class MXPHandler(TelnetOptionHandler):
-    op_code = bytes([91])
-    op_name = 'MXP'
-
-
 class NAWSHandler(TelnetOptionHandler):
-    op_code = t.NAWS
+    op_code = TCODES.NAWS
     op_name = 'NAWS'
     # For some reason, official spec says that the server must open up with a DO. No SERVER WILL. Weird.
     # Why? I dunno. Ffffffing telnet.
@@ -322,32 +413,9 @@ class MSSPHandler(TelnetOptionHandler):
             pass
 
 
-class MSPHandler(TelnetOptionHandler):
-    """
-    Mud Sound Protocol - http://www.zuggsoft.com/zmud/msp.htm
-    Not to be confused with MSSP above.
+class TelnetAsgiProtocol(AsgiAdapterProtocol):
+    asgi_type = 'telnet'
 
-    UNFINISHED: Do not activate.
-    """
-    op_code = bytes([90])
-    op_name = "MSP"
-
-    will = True
-
-    def play_sound(self):
-        pass
-
-    def stop_sound(self):
-        pass
-
-    def play_music(self):
-        pass
-
-    def stop_music(self):
-        pass
-
-
-class MudTelnetProtocol(t.Telnet):
 
     default_protocol_flags = {
         "ENCODING": "ascii",
@@ -378,58 +446,170 @@ class MudTelnetProtocol(t.Telnet):
 
     handler_classes = [MCCP2Handler, MCCP3Handler, SGAHandler, NAWSHandler, TTYPEHandler, MSSPHandler]
 
-    def enableRemote(self, option):
-        if (handler := self.handler_codes.get(option, None)):
-            handler.enableRemote()
-            return True
+    def __init__(self, reader, writer, server, application):
+        super().__init__(reader, writer, server, application)
 
-    def enableLocal(self, option):
-        if (handler := self.handler_codes.get(option, None)):
-            handler.enableLocal()
-            return True
-
-    def disableLocal(self, option):
-        # Pass this request along to our handlers, if available.
-        if (handler := self.handler_codes.get(option, None)):
-            handler.disableLocal()
-
-    def disableRemote(self, option):
-        # Pass this message along to our handlers, if available.
-        if (handler := self.handler_codes.get(option, None)):
-            handler.disableRemote()
-
-    # Re-implements the normal _write to allow for MCCP2 outgoing.
-    def _write_plain(self, data):
-        self.transport.write(data)
-
-    def _write_mccp2(self, data):
-        self.transport.write(self.mccp2.compress(data) + self.mccp2.flush(zlib.Z_SYNC_FLUSH))
-
-    def _dataReceived_plain(self, data):
-        super().dataReceived(data)
-
-    def _dataReceived_mccp3(self, data):
-        pass
-
-    def __init__(self):
-        super().__init__()
-        # Clone a protocol flags dict from the class property.
-        self.protocol_flags = dict(self.default_protocol_flags)
-        # When MCCP2 is enabled/disabled, self._write is swapped between the two versions.
-        self._write = self._write_plain
-        # When MCCP3 is enabled/disabled, self.dataReceived is swapped between the two versions.
-        self.dataReceived = self._dataReceived_plain
         self.data_buffer = []
         self.command_list = []
-        self.app_state = 'newline'
+
+        self.telnet_state = TSTATE.DATA
+
+        # If handlers want to do read/write-transforms on outgoing data, they'll be stored here and sorted
+        # by their property.
+        self.reader_transforms = []
+        self.writer_transforms = []
+
+        # These two handle when we're dealing with IAC WILL/WONT/DO/DONT and IAC SB <code>, storing data until it's
+        # needed.
+        self.iac_command = bytes([0])
+        self.negotiate_code = bytes([0])
+        self.negotiate_buffer = []
+
         self.handler_codes = dict()
         self.handler_names = dict()
+
         for h_class in self.handler_classes:
             handler = h_class(self)
             self.handler_codes[h_class.op_code] = handler
             self.handler_names[h_class.op_name] = handler
 
-    def applicationDataReceived(self, data):
+    def add_read_transform(self, handler):
+        if handler not in self.reader_transforms:
+            self.reader_transforms.append(handler)
+            self.sort_read_transform()
+
+    def remove_read_transform(self, handler):
+        if handler in self.reader_transforms:
+            self.reader_transforms.remove(handler)
+            self.sort_read_transform()
+
+    def add_write_transform(self, handler):
+        if handler not in self.writer_transforms:
+            self.writer_transforms.append(handler)
+            self.sort_write_transform()
+
+    def remove_write_transform(self, handler):
+        if handler in self.writer_transforms:
+            self.writer_transforms.remove(handler)
+            self.sort_write_transform()
+
+    def sort_read_transform(self):
+        self.reader_transforms.sort(key=lambda h: h.read_transform_order)
+
+    def sort_write_transform(self):
+        self.writer_transforms.sort(key=lambda h: h.write_transform_order)
+
+    async def handle_reader(self, data):
+        """
+        Iterate over all bytes.
+
+        This is largely shamelessly ripped from twisted.conch.telnet
+        """
+        app_data_buffer = []
+
+        # This is mostly for MCCP3.
+        for handler in self.reader_transforms:
+            data = handler.read_transform(data)
+
+        for b in [bytes([i]) for i in data]:
+
+            if self.telnet_state == TSTATE.DATA:
+                if b == TCODES.IAC:
+                    self.telnet_state = TSTATE.ESCAPED
+                elif b == b'\r':
+                    self.telnet_state = TSTATE.ENDLINE
+                else:
+                    app_data_buffer.append(b)
+            elif self.telnet_state == TSTATE.ESCAPED:
+                if b == TCODES.IAC:
+                    app_data_buffer.append(b)
+                    self.telnet_state = TSTATE.DATA
+                elif b == TCODES.SB:
+                    self.telnet_state = TSTATE.SUBNEGOTIATION
+                    self.negotiate_buffer = []
+                elif b in (TCODES.NOP, TCODES.DM, TCODES.BRK, TCODES.IP, TCODES.AO, TCODES.AYT, TCODES.EC, TCODES.EL, TCODES.GA):
+                    self.telnet_state = TSTATE.DATA
+                    if app_data_buffer:
+                        await self.parse_application_data(b''.join(app_data_buffer))
+                        del app_data_buffer[:]
+                    await self.execute_iac_command(b, None)
+                elif b in (TCODES.WILL, TCODES.WONT, TCODES.DO, TCODES.DONT):
+                    self.telnet_state = TSTATE.COMMAND
+                    self.iac_command = b
+                else:
+                    raise ValueError("Stumped", b)
+            elif self.telnet_state == 'command':
+                self.telnet_state = 'data'
+                if app_data_buffer:
+                    await self.parse_application_data(b''.join(app_data_buffer))
+                    del app_data_buffer[:]
+                await self.execute_iac_command(self.iac_command, b)
+                self.iac_command = bytes([0])
+            elif self.telnet_state == TSTATE.ENDLINE:
+                self.telnet_state = TSTATE.DATA
+                if b == b'\n':
+                    app_data_buffer.append(b'\n')
+                elif b == b'\0':
+                    app_data_buffer.append(b'\r')
+                elif b == TCODES.IAC:
+                    # IAC isn't really allowed after \r, according to the
+                    # RFC, but handling it this way is less surprising than
+                    # delivering the IAC to the app as application data.
+                    # The purpose of the restriction is to allow terminals
+                    # to unambiguously interpret the behavior of the CR
+                    # after reading only one more byte.  CR LF is supposed
+                    # to mean one thing (cursor to next line, first column),
+                    # CR NUL another (cursor to first column).  Absent the
+                    # NUL, it still makes sense to interpret this as CR and
+                    # then apply all the usual interpretation to the IAC.
+                    app_data_buffer.append(b'\r')
+                    self.telnet_state = TSTATE.ESCAPED
+                else:
+                    app_data_buffer.append(b'\r' + b)
+            elif self.telnet_state == TSTATE.SUBNEGOTIATION:
+                if b == TCODES.IAC:
+                    self.telnet_state = TSTATE.SUB_ESCAPED
+                else:
+                    self.negotiate_buffer.append(b)
+            elif self.telnet_state == TSTATE.SUB_ESCAPED:
+                if b == TCODES.SE:
+                    self.telnet_state = TSTATE.DATA
+                    if app_data_buffer:
+                        await self.parse_application_data(b''.join(app_data_buffer))
+                    await self.sub_negotiate(self.negotiate_code, self.negotiate_buffer)
+                    self.negotiate_code = bytes([0])
+                    self.negotiate_buffer.clear()
+                else:
+                    self.telnet_state = TSTATE.SUBNEGOTIATION
+                    self.negotiate_buffer.append(b)
+            else:
+                raise ValueError("How'd you do this?")
+
+            if app_data_buffer:
+                await self.parse_application_data(b''.join(app_data_buffer))
+
+    async def sub_negotiate(self, op_code, data):
+        if (handler := self.handler_codes.get(op_code, None)):
+            await handler.receive_sb(data)
+
+    async def execute_iac_command(self, command, op_code):
+        if op_code is None:
+            if command == TCODES.AYT:
+                # Let's respond to 'ARE YOU THERE' with 'NOP'. Kind of a Keepalive
+                await self.send_data(TCODES.NOP)
+            return
+
+        if (handler := self.handler_codes.get(op_code, None)):
+            if command == TCODES.WILL:
+                await handler.recv_WILL()
+            if command == TCODES.WONT:
+                await handler.recv_WONT()
+            if command == TCODES.DO:
+                await handler.recv_DO()
+            if command == TCODES.DONT:
+                await handler.recv_DONT()
+
+    async def parse_application_data(self, data):
         """
         This is called by super().dataReceived() and it receives a pile of bytes.
         This will never contain IAC-escaped sequences, but may contain other special
@@ -437,27 +617,22 @@ class MudTelnetProtocol(t.Telnet):
         """
         # First, append all the new data to our app buffer.
 
-        for b in iterbytes(data):
+        for b in data:
 
-            if b == t.NULL:
+            if b in (TCODES.NUL, TCODES.NOP):
                 # Ignoring this ancient keepalive
                 # convert it to the IDLE COMMAND here...
-                self.command_list.append("IDLE")
+                await self.user_command(b"IDLE")
                 continue
-            if b == t.LF:
-                self.command_list.append(b''.join(self.data_buffer))
+            if b == TCODES.LF:
+                await self.user_command(b''.join(self.data_buffer))
                 self.data_buffer.clear()
                 continue
 
             # Nothing else stands out? Append the data to data buffer...
             self.data_buffer.append(b)
 
-        # We have pending commands. What're we gonna do with them?
-        for command in self.command_list:
-            self.decodeCommand(command)
-        self.command_list.clear()
-
-    def decodeCommand(self, command):
+    async def user_command(self, command):
         """
         Decodes user-entered command into preferred style, such as UTF-8.
 
@@ -465,11 +640,20 @@ class MudTelnetProtocol(t.Telnet):
             command (byte string): The user-entered command, minus terminating CRLF
         """
         decoded = command.decode("utf-8", errors='ignore')
-        print(f"SUCCESSFULLY DECODED COMMAND: {decoded}")
-        self._write(b"TELNET ECHO: %s\r\n" % command)
+        event = {
+            "type": "telnet.line",
+            "line": decoded
+        }
+        await self.to_app.put(event)
 
-    def connectionMade(self):
+    async def send_data(self, data):
+        """
+        Run transforms on all outgoing data before sending to transport.
 
-        for handler in self.handler_codes.values():
-            if handler.will:
-                handler.start()
+        Args:
+            data (bytearray): The data being sent.
+
+        """
+        for handler in self.writer_transforms:
+            data = handler.write_transform(data)
+        await self.write_data(data)

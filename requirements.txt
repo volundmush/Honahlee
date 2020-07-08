@@ -3,5 +3,4 @@ uvloop == 0.14.0
 django == 3.0.8
 channels == 2.4.0
 ujson == 3.0.0
-twisted == 20.3.0
 hypercorn == 0.10.1

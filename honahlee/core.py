@@ -8,17 +8,17 @@ class BaseApplication:
         self.services = dict()
         self.awaitables = list()
 
-    def setup(self):
+    async def setup(self):
         for k, v in self.settings.APPLICATION_SERVICES.items():
             service_class = import_from_module(v)
             self.services[k] = service_class(self)
 
         for service in sorted(self.services.values(), key=lambda s: s.setup_order):
-            service.setup()
+            await service.setup()
 
-    def start(self):
+    async def start(self):
         for service in sorted(self.services.values(), key=lambda s: s.start_order):
-            service.start()
+            await service.start()
 
 
 class Application(BaseApplication):
@@ -32,8 +32,8 @@ class BaseService:
     def __init__(self, app):
         self.app = app
 
-    def setup(self):
+    async def setup(self):
         pass
 
-    def start(self):
+    async def start(self):
         pass
