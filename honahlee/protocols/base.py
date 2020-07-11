@@ -13,7 +13,8 @@ class AsgiAdapterProtocol:
                       'server': None,  # Same as client.
                       "bytes_sent": 0,
                       "bytes_received": 0,
-                      "connection_date": None
+                      "connection_date": None,
+                      "headers": [] # technically for HTTP/WebSockets. having this allows Django to work with Telnet
                       }
 
     # The 'type' of this protocol that will be shown in ASGI.

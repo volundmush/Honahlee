@@ -7,27 +7,28 @@ from django.conf.urls import url
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.consumer import AsyncConsumer
+from channels.auth import AuthMiddlewareStack
 
 
 class LifespanAsyncConsumer(AsyncConsumer):
     service = None
 
-    def lifespan_startup(self):
+    async def lifespan_startup(self):
         pass
 
-    def lifespan_startup_complete(self):
+    async def lifespan_startup_complete(self):
         pass
 
-    def lifespan_startup_failed(self):
+    async def lifespan_startup_failed(self):
         pass
 
-    def lifespan_shutdown(self):
+    async def lifespan_shutdown(self):
         pass
 
-    def lifespan_shutdown_complete(self):
+    async def lifespan_shutdown_complete(self):
         pass
 
-    def lifespan_shutdown_failed(self):
+    async def lifespan_shutdown_failed(self):
         pass
 
 
@@ -63,7 +64,7 @@ class WebService(BaseService):
         self.asgi_app = None
         self.consumer_classes = dict()
 
-    def setup(self):
+    async def setup(self):
 
         self.config = Config()
         self.config.bind = [f"{self.app.settings.INTERFACE}:{self.app.settings.WEB_PORT}"]
@@ -78,21 +79,21 @@ class WebService(BaseService):
     def get_protocol_router_config(self):
         return {
             "websocket": self.get_protocol_websocket_config(),
-            "lifespan": self.consumer_classes["LIFESPAN"]
+            "lifespan": self.consumer_classes["LIFESPAN"],
+            "telnet": AuthMiddlewareStack(self.consumer_classes["TELNET"])
         }
 
     def get_protocol_websocket_config(self):
 
-
-        return URLRouter([
+        return AuthMiddlewareStack(URLRouter([
             url(r"^game/$", self.consumer_classes["GAME"]),
             url(r"^link/$", self.consumer_classes["LINK"])
-        ])
+        ]))
 
     def get_protocol_router_http_config(self):
         pass
 
-    def start(self):
+    async def start(self):
         import asyncio
         loop = asyncio.get_event_loop()
         from hypercorn.asyncio import serve

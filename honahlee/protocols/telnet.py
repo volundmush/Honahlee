@@ -2,6 +2,8 @@ from honahlee.protocols.base import AsgiAdapterProtocol
 from codecs import encode as codecs_encode
 import zlib
 
+from channels.consumer import AsyncConsumer
+
 # Much of this code has been adapted from the Evennia project https://github.com/evennia/evennia
 # twisted.conch.telnet was also used for inspiration.
 # Credit where credit is due.
@@ -657,3 +659,16 @@ class TelnetAsgiProtocol(AsgiAdapterProtocol):
         for handler in self.writer_transforms:
             data = handler.write_transform(data)
         await self.write_data(data)
+
+
+class AsyncTelnetConsumer(AsyncConsumer):
+    service = None
+
+    async def telnet_line(self, event):
+        pass
+
+    async def telnet_disconnect(self, event):
+        pass
+
+    async def telnet_connect(self, event):
+        pass

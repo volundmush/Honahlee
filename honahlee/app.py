@@ -6,24 +6,22 @@ import sys
 import asyncio
 import uvloop
 
+import django
+from django.conf import settings
+
 from honahlee.utils.misc import import_from_module
-
-# Make sure we will be running the AsyncioReactor for Twisted with Uvloop going.
-# MAX SPEED BABY
-
-
-# Making sure that this is imported here so it won't try and install a different reactor
-# from here on.
-from twisted.internet import reactor
 
 
 async def main():
 
     # Step 1: get settings from profile.
     try:
-        settings = importlib.import_module('gamedata.settings')
+        game_settings = importlib.import_module('gamedata.settings')
     except Exception:
         raise Exception("Could not import settings!")
+
+    settings.configure(game_settings)
+    django.setup()
 
     # Step 2: Locate application Core from settings. Instantiate
     # application core and inject settings into it.

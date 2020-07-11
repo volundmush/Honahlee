@@ -1,3 +1,5 @@
+from django.conf.global_settings import *
+
 SERVER_NAME = "Honahlee"
 
 GAME_SLOGAN = "Adventure in Worlds of Pure Imagination"
@@ -48,5 +50,34 @@ SERVERS = {
         'server_class': 'base',
         'protocol_class': 'telnet',
         'tls': False
+    }
+}
+
+# Django Settings
+USE_TZ = True
+TIME_ZONE = "Etc/UTC"
+
+INSTALLED_APPS = []
+
+TEMPLATES = []
+
+MIDDLEWARE = []
+
+
+MEDIA_ROOT = ''
+MEDIA_URL = ''
+
+STATIC_ROOT = None
+STATIC_URL = None
+STATICFILES_DIRS = []
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": "game.sqlite3",
+        "USER": "",
+        "PASSWORD": "",
+        "HOST": "",
+        "PORT": "",
     }
 }
