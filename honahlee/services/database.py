@@ -1,5 +1,4 @@
 from honahlee.core import BaseService
-from tortoise import Tortoise
 
 
 class DatabaseService(BaseService):
@@ -10,5 +9,4 @@ class DatabaseService(BaseService):
         super().__init__(app)
 
     async def setup(self):
-        await Tortoise.init(**self.app.settings.DATABASE_INIT)
-        await Tortoise.generate_schemas(safe=True)
+        pass

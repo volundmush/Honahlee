@@ -14,15 +14,6 @@ from honahlee.utils.misc import import_from_module
 
 async def main():
 
-    # Step 1: get settings from profile.
-    try:
-        game_settings = importlib.import_module('gamedata.settings')
-    except Exception:
-        raise Exception("Could not import settings!")
-
-    settings.configure(game_settings)
-    django.setup()
-
     # Step 2: Locate application Core from settings. Instantiate
     # application core and inject settings into it.
     # This doesn't have anything to do with Twisted's own Application framework.
@@ -51,6 +42,15 @@ if __name__ == "__main__":
         print(pidfile)
         print(os.getpid())
 
+    # Step 1: get settings from profile.
+    try:
+        game_settings = importlib.import_module('gamedata.settings')
+    except Exception:
+        raise Exception("Could not import settings!")
+
+    settings.configure(game_settings)
+    django.setup()
+    print("WE GOT THIS FAR!")
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(main())

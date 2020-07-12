@@ -1,7 +1,6 @@
 #!/usr/bin/env python3.8
 
 import argparse
-import asyncio
 import os
 import sys
 import re
@@ -9,9 +8,13 @@ import shutil
 import subprocess
 import shlex
 import signal
+import importlib
 
 import uvloop
 import honahlee
+
+import django
+from django.conf import settings
 
 HONAHLEE_ROOT = os.path.abspath(os.path.dirname(honahlee.__file__))
 HONAHLEE_APP = os.path.join(HONAHLEE_ROOT, 'app.py')
@@ -73,7 +76,7 @@ def ensure_stopped():
     return False
 
 
-def operation_start(args):
+def operation_start(op, args, unknown):
     if not ensure_stopped():
         raise ValueError(f"Server is already running as Process {PROFILE_PID}.")
     print("LET'S START THIS THING!")
@@ -85,11 +88,11 @@ def operation_start(args):
         raise ValueError("Could not launch Honahlee! Why?")
 
 
-def operation_noop(args):
+def operation_noop(op, args, unknown):
     pass
 
 
-def operation_stop(args):
+def operation_stop(op, args, unknown):
     if not ensure_running():
         raise ValueError("Server is not running.")
     os.kill(PROFILE_PID, signal.SIGTERM)
@@ -97,11 +100,24 @@ def operation_stop(args):
     print(f"Stopped process {PROFILE_PID}")
 
 
-def operation_migrate(args):
-    pass
+def operation_django(op, args, unknown):
+    """
+    God only knows what people typed here. Let Django figure it out.
+    """
+    # Quickly setup Django with a game-like environment and run Django management commands.
+    os.chdir(PROFILE_PATH)
+    sys.path.insert(0, os.getcwd())
+    try:
+        game_settings = importlib.import_module('gamedata.settings')
+    except Exception:
+        raise Exception("Could not import settings!")
+
+    settings.configure(game_settings)
+    django.setup()
+    django.core.management.call_command(*([op] + unknown))
 
 
-def operation_create(args):
+def operation_create(op, args, unknown):
     if not os.path.exists(PROFILE_PATH):
         shutil.copytree(HONAHLEE_PROFILE, PROFILE_PATH)
         os.rename(os.path.join(PROFILE_PATH, 'gitignore'), os.path.join(PROFILE_PATH, '.gitignore'))
@@ -114,34 +130,33 @@ def operation_list(args):
     pass
 
 
+CHOICES = ['start', 'stop', 'create', 'list']
+
 OPERATIONS = {
     'noop': operation_noop,
     'start': operation_start,
     'stop': operation_stop,
-    'migrate': operation_migrate,
     'create': operation_create,
-    'list': operation_list
+    'list': operation_list,
+    '_django': operation_django,
 }
 
 
-async def run_launcher():
+def main():
     uvloop.install()
     parser = create_parser()
     args, unknown_args = parser.parse_known_args()
 
     option = args.operation.lower()
+    operation = option
+    if option not in CHOICES:
+        option = '_django'
 
     try:
         set_profile_path(args)
         if not (op_func := OPERATIONS.get(option, None)):
             raise ValueError(f"No operation: {option}")
-        op_func(args)
+        op_func(operation, args, unknown_args)
 
     except Exception as e:
         print(f"Something done goofed: {e}")
-        return
-
-
-def main():
-    uvloop.install()
-    asyncio.run(run_launcher())

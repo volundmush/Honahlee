@@ -1,10 +1,9 @@
+import asyncio
 from honahlee.core import BaseService
 from honahlee.utils.misc import import_from_module
-from twisted.internet.protocol import ServerFactory
-from twisted.internet import ssl
 
 
-class HonahleeServerFactory(ServerFactory):
+class HonahleeServer:
 
     def __init__(self, service, name, address, port, protocol, tls):
         self.service = service
@@ -13,7 +12,23 @@ class HonahleeServerFactory(ServerFactory):
         self.port = port
         self.protocol = protocol
         self.tls = tls
-        self.listener = None
+        self.server = None
+        self.task = None
+
+    async def accept(self, reader, writer):
+        asgi = self.service.app.services['web'].asgi_app
+        new_protocol = self.protocol(reader, writer, self, asgi)
+        # asyncio.get_event_loop().create_task(new_protocol.start())
+        await new_protocol.start()
+
+    async def start(self):
+        ssl = self.service.ssl_context if self.tls else None
+        self.server = asyncio.start_server(self.accept, host=self.address, port=self.port, ssl=ssl)
+        self.task = asyncio.get_event_loop().create_task(self.server)
+
+    async def stop(self):
+        if self.server:
+            self.server.stop()
 
 
 class NetworkService(BaseService):
@@ -45,11 +60,6 @@ class NetworkService(BaseService):
             raise ValueError("TLS is not properly configured. Cannot start TLS server.")
         new_server = srv_class(self, name, address, port, prot_class, tls)
         self.servers[name] = new_server
-        from twisted.internet import reactor
-        if tls:
-            pass
-        else:
-            new_server.listener = reactor.listenTCP(port, new_server, interface=address)
         return new_server
 
     def register_connection(self, conn):
@@ -58,7 +68,7 @@ class NetworkService(BaseService):
     def unregister_connection(self, conn):
         del self.connections[conn.uuid]
 
-    def setup(self):
+    async def setup(self):
         for k, v in self.app.settings.SERVER_CLASSES.items():
             srv_class = import_from_module(v)
             self.register_server_class(k, srv_class)
@@ -68,9 +78,9 @@ class NetworkService(BaseService):
         # do TLS init down here...
 
         for k, v in self.app.settings.SERVERS.items():
-            self.create_server(k, self.app.settings.INTERFACE, v['port'], v['server_class'], v['protocol_class'], v['tls'])
+            self.create_server(k, self.app.settings.INTERFACE, v['port'], v['server_class'], v['protocol_class'],
+                               v['tls'])
 
-    def start(self):
+    async def start(self):
         for k, v in self.servers.items():
-            pass
-            #v.listener.startListening()
+            await v.start()
