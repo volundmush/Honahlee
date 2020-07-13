@@ -1,7 +1,9 @@
 import asyncio
 import datetime
-from asgiref.compatibility import is_double_callable, double_to_single_callable
 
+from asgiref.compatibility import is_double_callable, double_to_single_callable
+from channels.consumer import AsyncConsumer, StopConsumer
+from channels.auth import login, logout
 
 class AsgiAdapterProtocol:
     """
@@ -176,4 +178,54 @@ class AsgiAdapterProtocol:
         Args:
             data (bytearray): Raw data from TCP/TLS.
         """
+        pass
+
+
+class AsyncGameConsumerMixin:
+    """
+    This is a class meant to be added to any Async Consumer that's supposed to be interacting
+    as a Game Client.
+    """
+    app = None
+
+    async def game_login(self, account):
+        """
+        Log this consumer in to the game via Django.
+
+        Args:
+            account (User): The Django User account to bind to this Consumer.
+        """
+        await login(self.scope, account)
+
+    async def game_close(self, reason):
+        """
+        Call all cleanup routines and close this consumer. This can be triggered by either the client
+        or the server.
+
+        Args:
+            reason (str): The reason for this closing.
+        """
+        raise StopConsumer(reason)
+
+    async def game_input(self, cmd, *args, **kwargs):
+        """
+        Processes input from players in Inputfunc Format. See Evennia specs for details.
+        """
+        if (func := self.app.input_funcs.get(cmd, None)):
+            await func(self, cmd, *args, **kwargs)
+
+    async def game_output(self, cmd, *args, **kwargs):
+        """
+        Processes output from Honahlee and game servegrs, sends to players.
+        """
+        if (func := self.app.output_funcs.get(cmd, None)):
+            await func(self, cmd, *args, **kwargs)
+
+    async def game_link(self, game):
+        pass
+
+    async def game_unlink(self, game):
+        pass
+
+    async def game_connect(self):
         pass

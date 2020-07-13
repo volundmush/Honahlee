@@ -1,10 +1,8 @@
 import zlib
 import asyncio
 
-from honahlee.protocols.base import AsgiAdapterProtocol
-from codecs import encode as codecs_encode
-
-from channels.consumer import AsyncConsumer, StopConsumer
+from channels.consumer import AsyncConsumer
+from honahlee.protocols.base import AsgiAdapterProtocol, AsyncGameConsumerMixin
 
 # Much of this code has been adapted from the Evennia project https://github.com/evennia/evennia
 # twisted.conch.telnet was also used for inspiration.
@@ -775,22 +773,15 @@ class TelnetAsgiProtocol(AsgiAdapterProtocol):
         })
 
 
-class AsyncTelnetConsumer(AsyncConsumer):
-    service = None
+class AsyncTelnetConsumer(AsyncConsumer, AsyncGameConsumerMixin):
 
     async def telnet_line(self, event):
-        print(f"GOT A TELNET LINE: {self.scope} - {event}")
-        await self.send({
-            "type": "text",
-            "data": "ASGI ECHO: %s\r\n" % event["line"]
-        })
+        await self.game_input("text", event['line'])
 
     async def telnet_disconnect(self, event):
-        print(f"GOT A TELNET DISCONNECT: {event}")
-        raise StopConsumer()
+        await self.game_close(event['reason'])
 
     async def telnet_connect(self, event):
-
         # Gotta set this to the same dictionary that's contained in the base
         self.scope["game_client"] = event["data"]
-
+        await self.game_connect()
