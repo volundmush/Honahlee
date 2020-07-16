@@ -6,7 +6,7 @@ class BaseApplication:
     def __init__(self, settings):
         self.settings = settings
         self.services = dict()
-        self.awaitables = list()
+        self.input_funcs = dict()
 
     async def setup(self):
         for k, v in self.settings.APPLICATION_SERVICES.items():

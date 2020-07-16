@@ -5,6 +5,7 @@ from asgiref.compatibility import is_double_callable, double_to_single_callable
 from channels.consumer import AsyncConsumer, StopConsumer
 from channels.auth import login, logout
 
+
 class AsgiAdapterProtocol:
     """
     A base class for creating new Protocols that are meant to connect to an ASGI Application.
@@ -186,6 +187,7 @@ class AsyncGameConsumerMixin:
     This is a class meant to be added to any Async Consumer that's supposed to be interacting
     as a Game Client.
     """
+    # This is a class property that will be set to the CORE APPLICATION.
     app = None
 
     async def game_login(self, account):
@@ -196,6 +198,9 @@ class AsyncGameConsumerMixin:
             account (User): The Django User account to bind to this Consumer.
         """
         await login(self.scope, account)
+
+    async def game_logout(self):
+        pass
 
     async def game_close(self, reason):
         """
@@ -218,8 +223,7 @@ class AsyncGameConsumerMixin:
         """
         Processes output from Honahlee and game servegrs, sends to players.
         """
-        if (func := self.app.output_funcs.get(cmd, None)):
-            await func(self, cmd, *args, **kwargs)
+        pass
 
     async def game_link(self, game):
         pass
