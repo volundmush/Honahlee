@@ -54,11 +54,15 @@ TLS = {
 SERVERS = {
     'telnet': {
         'port': 4100,
+        'interface': INTERFACE,
         'server_class': 'base',
         'protocol_class': 'telnet',
         'tls': False
     }
 }
+
+# Path to a callable which will generate a connect screen to show new connections to the game.
+CONNECTION_SCREEN = "honahlee.utils.connect.connect_screen"
 
 # ------------------- DJANGO SETTINGS -------------
 

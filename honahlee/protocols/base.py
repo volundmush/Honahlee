@@ -5,6 +5,7 @@ from asgiref.compatibility import is_double_callable, double_to_single_callable
 from channels.consumer import AsyncConsumer, StopConsumer
 from channels.auth import login, logout
 
+from honahlee.utils.misc import import_from_module
 
 class AsgiAdapterProtocol:
     """
@@ -230,12 +231,6 @@ class AsyncGameConsumerMixin:
         if (func := self.app.input_funcs.get(cmd, None)):
             await func(self, cmd, *args, **kwargs)
 
-    async def game_output(self, cmd, *args, **kwargs):
-        """
-        Processes output from Honahlee and game servegrs, sends to players.
-        """
-        pass
-
     async def game_link(self, game):
         pass
 
@@ -253,4 +248,9 @@ class AsyncGameConsumerMixin:
         """
         This sends the Connect Screen to this client.
         """
-        pass
+        screen = import_from_module(self.app.settings.CONNECTION_SCREEN)
+        display = screen(self)
+        await self.send({
+            'type': 'game.text',
+            'data': display
+        })
