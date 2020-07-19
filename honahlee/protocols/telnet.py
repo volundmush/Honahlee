@@ -774,6 +774,12 @@ class TelnetAsgiProtocol(AsgiAdapterProtocol):
 
 
 class AsyncTelnetConsumer(AsyncConsumer, AsyncGameConsumerMixin):
+    app = None
+    service = None
+
+    def __init__(self, scope):
+        super().__init__(scope)
+        self.game_setup()
 
     async def telnet_line(self, event):
         await self.game_input("text", event['line'])

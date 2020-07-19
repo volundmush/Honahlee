@@ -1,14 +1,17 @@
-from honahlee.core import BaseService
-from honahlee.utils.misc import import_from_module
-from channels.routing import ProtocolTypeRouter
-from hypercorn.config import Config
-from channels.routing import URLRouter
+import ujson
+
 from django.conf.urls import url
 
-from channels.generic.websocket import AsyncWebsocketConsumer
+from hypercorn.config import Config
+
+from channels.routing import URLRouter
+from channels.routing import ProtocolTypeRouter
+from channels.generic.websocket import AsyncWebsocketConsumer, AsyncJsonWebsocketConsumer
 from channels.consumer import AsyncConsumer
 from channels.auth import AuthMiddlewareStack
 
+from honahlee.core import BaseService
+from honahlee.utils.misc import import_from_module
 
 class LifespanAsyncConsumer(AsyncConsumer):
     service = None
@@ -47,15 +50,43 @@ class GameConsumer(AsyncWebsocketConsumer):
         print(f"CLOSED {self} with {code}")
 
 
-class LinkConsumer(AsyncWebsocketConsumer):
+class LinkConsumer(AsyncJsonWebsocketConsumer):
     service = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.link = None
+
+    async def decode_json(cls, text_data):
+        return ujson.loads(text_data)
 
     async def connect(self):
         await self.accept()
-        print(f"RECEIVED A LINK CONNECTION: {self.scope}")
 
     async def disconnect(self, code):
         print(f"CLOSED {self} with {code}")
+
+    async def receive_json(self, content, **kwargs):
+        if not (msg_type := content.get('type', None)):
+            raise ValueError("Malformed message. Messages require a type!")
+        if not (method := getattr(self, f'msg_{msg_type}', None)):
+            raise ValueError(f"Unsupported Message Type: {msg_type}")
+        await method(content)
+
+    async def msg_link(self, message):
+        """
+        Link this game to this consumer.
+        A game can only have one link at a time
+        """
+        if not (api_key := message.get('api_key', None)):
+            raise ValueError("Link message requires an api_key")
+        self.link = await self.service.app.services['link'].link_consumer(self, api_key)
+
+    async def msg_unlink(self, message):
+        """
+        Terminates this game link and unbinds all clients connected to it. Will close the websocket connection too.
+        """
+        self.link.unlink(self)
 
 
 class WebService(BaseService):

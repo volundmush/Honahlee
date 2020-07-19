@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from honahlee.core import BaseService
 from honahlee.utils.misc import import_from_module
 
@@ -63,10 +64,16 @@ class NetworkService(BaseService):
         return new_server
 
     def register_connection(self, conn):
-        self.connections[conn.uuid] = conn
+        fresh_uuid = None
+        while fresh_uuid is None:
+            new_uuid = uuid.uuid4()
+            if new_uuid not in self.connections:
+                fresh_uuid = new_uuid
+        conn.conn_id = fresh_uuid
+        self.connections[conn.conn_id] = conn
 
     def unregister_connection(self, conn):
-        del self.connections[conn.uuid]
+        del self.connections[conn.conn_id]
 
     async def setup(self):
         for k, v in self.app.settings.SERVER_CLASSES.items():

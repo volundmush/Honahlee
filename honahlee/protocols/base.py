@@ -189,6 +189,12 @@ class AsyncGameConsumerMixin:
     """
     # This is a class property that will be set to the CORE APPLICATION.
     app = None
+    service = None
+
+    def game_setup(self):
+        self.game_id = None
+        self.logged_in = None
+        self.conn_id = None
 
     async def game_login(self, account):
         """
@@ -198,9 +204,11 @@ class AsyncGameConsumerMixin:
             account (User): The Django User account to bind to this Consumer.
         """
         await login(self.scope, account)
+        self.logged_in = True
 
     async def game_logout(self):
-        pass
+        await logout(self.scope)
+        self.logged_in = False
 
     async def game_close(self, reason):
         """
@@ -216,6 +224,9 @@ class AsyncGameConsumerMixin:
         """
         Processes input from players in Inputfunc Format. See Evennia specs for details.
         """
+        if not self.conn_id:
+            # If this connection is not yet registered, ignore all input.
+            return
         if (func := self.app.input_funcs.get(cmd, None)):
             await func(self, cmd, *args, **kwargs)
 
@@ -232,4 +243,14 @@ class AsyncGameConsumerMixin:
         pass
 
     async def game_connect(self):
+        """
+        This is called when a client has finished all protocol-level setup and is ready to begin talking to game logic.
+        """
+        self.service.register_connection(self)
+        await self.game_connect_screen()
+
+    async def game_connect_screen(self):
+        """
+        This sends the Connect Screen to this client.
+        """
         pass

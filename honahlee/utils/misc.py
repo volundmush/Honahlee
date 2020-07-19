@@ -1,4 +1,6 @@
 import importlib
+import textwrap
+from unicodedata import east_asian_width
 
 
 def import_from_module(path: str):
@@ -51,3 +53,173 @@ def to_str(text, session=None):
         # no valid encoding found. Replace unconvertable parts with ?
         return text.decode(default_encoding, errors="replace")
 
+
+def inherits_from(obj, parent):
+    """
+    Takes an object and tries to determine if it inherits at *any*
+    distance from parent.
+
+    Args:
+        obj (any): Object to analyze. This may be either an instance or
+            a class.
+        parent (any): Can be either an instance, a class or the python
+            path to the class.
+
+    Returns:
+        inherits_from (bool): If `parent` is a parent to `obj` or not.
+
+    Notes:
+        What differentiates this function from Python's `isinstance()` is the
+        flexibility in the types allowed for the object and parent being compared.
+
+    """
+
+    if callable(obj):
+        # this is a class
+        obj_paths = ["%s.%s" % (mod.__module__, mod.__name__) for mod in obj.mro()]
+    else:
+        obj_paths = ["%s.%s" % (mod.__module__, mod.__name__) for mod in obj.__class__.mro()]
+
+    if isinstance(parent, str):
+        # a given string path, for direct matching
+        parent_path = parent
+    elif callable(parent):
+        # this is a class
+        parent_path = "%s.%s" % (parent.__module__, parent.__name__)
+    else:
+        parent_path = "%s.%s" % (parent.__class__.__module__, parent.__class__.__name__)
+    return any(1 for obj_path in obj_paths if obj_path == parent_path)
+
+
+def is_iter(obj):
+    """
+    Checks if an object behaves iterably.
+
+    Args:
+        obj (any): Entity to check for iterability.
+
+    Returns:
+        is_iterable (bool): If `obj` is iterable or not.
+
+    Notes:
+        Strings are *not* accepted as iterable (although they are
+        actually iterable), since string iterations are usually not
+        what we want to do with a string.
+
+    """
+    if isinstance(obj, (str, bytes)):
+        return False
+
+    try:
+        return iter(obj) and True
+    except TypeError:
+        return False
+
+
+def make_iter(obj):
+    """
+    Makes sure that the object is always iterable.
+
+    Args:
+        obj (any): Object to make iterable.
+
+    Returns:
+        iterable (list or iterable): The same object
+            passed-through or made iterable.
+
+    """
+    return not is_iter(obj) and [obj] or obj
+
+
+# lazy load handler
+_missing = object()
+
+
+# Lazy property yoinked from evennia
+class lazy_property(object):
+    """
+    Delays loading of property until first access. Credit goes to the
+    Implementation in the werkzeug suite:
+    http://werkzeug.pocoo.org/docs/utils/#werkzeug.utils.cached_property
+
+    This should be used as a decorator in a class and in Evennia is
+    mainly used to lazy-load handlers:
+
+        ```python
+        @lazy_property
+        def attributes(self):
+            return AttributeHandler(self)
+        ```
+
+    Once initialized, the `AttributeHandler` will be available as a
+    property "attributes" on the object.
+
+    """
+
+    def __init__(self, func, name=None, doc=None):
+        """Store all properties for now"""
+        self.__name__ = name or func.__name__
+        self.__module__ = func.__module__
+        self.__doc__ = doc or func.__doc__
+        self.func = func
+
+    def __get__(self, obj, type=None):
+        """Triggers initialization"""
+        if obj is None:
+            return self
+        value = obj.__dict__.get(self.__name__, _missing)
+        if value is _missing:
+            value = self.func(obj)
+        obj.__dict__[self.__name__] = value
+        return value
+
+
+def wrap(text, width=None, indent=0):
+    """
+    Safely wrap text to a certain number of characters.
+
+    Args:
+        text (str): The text to wrap.
+        width (int, optional): The number of characters to wrap to.
+        indent (int): How much to indent each line (with whitespace).
+
+    Returns:
+        text (str): Properly wrapped text.
+
+    """
+    width = width if width else 78
+    if not text:
+        return ""
+    indent = " " * indent
+    return to_str(textwrap.fill(text, width, initial_indent=indent, subsequent_indent=indent))
+
+
+# alias - fill
+fill = wrap
+
+
+def display_len(target):
+    """
+    Calculate the 'visible width' of text. This is not necessarily the same as the
+    number of characters in the case of certain asian characters. This will also
+    strip MXP patterns.
+
+    Args:
+        target (any): Something to measure the length of. If a string, it will be
+            measured keeping asian-character and MXP links in mind.
+
+    Return:
+        int: The visible width of the target.
+
+    """
+    # Would create circular import if in module root.
+    from evennia.utils.ansi import ANSI_PARSER
+
+    if inherits_from(target, str):
+        # str or ANSIString
+        target = ANSI_PARSER.strip_mxp(target)
+        target = ANSI_PARSER.parse_ansi(target, strip_ansi=True)
+        extra_wide = ("F", "W")
+        return sum(2 if east_asian_width(char) in extra_wide else 1 for char in target)
+    else:
+        return len(target)
