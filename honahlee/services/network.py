@@ -30,7 +30,7 @@ class HonahleeServer(HonahleeNetworkBase):
     async def start(self):
         ssl = self.service.ssl_context if self.tls else None
         self.server = asyncio.start_server(self.accept, host=self.address, port=self.port, ssl=ssl)
-        self.task = asyncio.get_event_loop().create_task(self.server)
+        self.task = self.app.loop.create_task(self.server)
 
     async def stop(self):
         if self.server:
