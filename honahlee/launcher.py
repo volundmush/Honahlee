@@ -3,23 +3,22 @@
 import argparse
 import os
 import sys
-import re
 import shutil
 import subprocess
 import shlex
 import signal
 import importlib
 
-import uvloop
 import honahlee
 
-import django
-from django.conf import settings
-
 HONAHLEE_ROOT = os.path.abspath(os.path.dirname(honahlee.__file__))
+HONAHLEE_LIB = None
 HONAHLEE_APP = os.path.join(HONAHLEE_ROOT, 'app.py')
-HONAHLEE_PROFILE = os.path.join(HONAHLEE_ROOT, 'profile_template')
-HONAHLEE_FOLDER = os.path.join(os.path.expanduser('~'), '.honahlee')
+HONAHLEE_PROFILE = None
+
+LIB_LIB = None
+LIB_FOLDER = None
+LIB_TEMPLATE = None
 
 PROFILE_PATH = None
 PROFILE_PIDFILE = None
@@ -28,21 +27,32 @@ PROFILE_PID = -1
 
 def create_parser():
     parser = argparse.ArgumentParser(description="BOO", formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--profile", nargs=1, action="store", dest="profile", metavar="<profile>", default="default")
-    parser.add_argument("operation", nargs="?", action="store", metavar="<operation>", default="noop")
+    parser.add_argument("--lib", nargs=1, action="store", dest="libfolder", metavar="<library>", default='honahlee')
+    parser.add_argument("--init", nargs=1, action="store", dest="init", metavar="<folder>")
+    parser.add_argument("operation", nargs="?", action="store", metavar="<operation>", default="_noop")
     return parser
+
+
+def set_honahlee_lib(name):
+    print(f"SETTING HONAHLEE LIB TO: {name}")
+    global LIB_LIB, LIB_FOLDER, LIB_TEMPLATE
+    LIB_LIB = importlib.import_module(name)
+    LIB_FOLDER = os.path.abspath(os.path.dirname(LIB_LIB.__file__))
+    LIB_TEMPLATE = os.path.join(LIB_FOLDER, "profile_template")
+
+
+def set_honahlee_lib_from_profile():
+    appconfig_module = importlib.import_module('appdata.config')
+    name = appconfig_module.Config.lib_name
+    set_honahlee_lib(name)
 
 
 def set_profile_path(args):
     global PROFILE_PATH, PROFILE_PIDFILE
-    reg = re.compile(r"^\w+$")
-    profile_name = args.profile.lower()
-    if not reg.match(profile_name):
-        raise ValueError("Must stick to very simple profile names!")
-    if not os.path.exists(HONAHLEE_FOLDER):
-        os.makedirs(HONAHLEE_FOLDER)
-    PROFILE_PATH = os.path.join(HONAHLEE_FOLDER, profile_name)
-    PROFILE_PIDFILE = os.path.join(PROFILE_PATH, "server.pid")
+    PROFILE_PATH = os.getcwd()
+    if not os.path.exists(os.path.join(PROFILE_PATH, 'appdata')):
+        raise ValueError("Current directory is not a valid Honahlee profile!")
+    PROFILE_PIDFILE = os.path.join(PROFILE_PATH, "app.pid")
 
 
 def ensure_running():
@@ -100,63 +110,75 @@ def operation_stop(op, args, unknown):
     print(f"Stopped process {PROFILE_PID}")
 
 
-def operation_django(op, args, unknown):
+def operation_passthru(op, args, unknown):
     """
     God only knows what people typed here. Let Django figure it out.
     """
-    # Quickly setup Django with a game-like environment and run Django management commands.
-    os.chdir(PROFILE_PATH)
-    sys.path.insert(0, os.getcwd())
     try:
-        game_settings = importlib.import_module('gamedata.settings')
-    except Exception:
-        raise Exception("Could not import settings!")
+        launcher_module = importlib.import_module('appdata.launcher')
+        launcher = launcher_module.RunOperation
+    except Exception as e:
+        raise Exception(f"Unsupported command {op}")
 
-    settings.configure(game_settings)
-    django.setup()
-    django.core.management.call_command(*([op] + unknown))
+    try:
+        launcher(op, args, unknown)
+    except Exception as e:
+        print(e)
+        raise Exception(f"Could not import settings!")
 
 
-def operation_create(op, args, unknown):
-    if not os.path.exists(PROFILE_PATH):
-        shutil.copytree(HONAHLEE_PROFILE, PROFILE_PATH)
-        os.rename(os.path.join(PROFILE_PATH, 'gitignore'), os.path.join(PROFILE_PATH, '.gitignore'))
-        print(f"Profile created at {PROFILE_PATH}")
+def option_init(name, un_args):
+    prof_path = os.path.join(os.getcwd(), name)
+    if not os.path.exists(prof_path):
+        #os.makedirs(prof_path)
+        shutil.copytree(LIB_TEMPLATE, prof_path)
+        os.rename(os.path.join(prof_path, 'gitignore'), os.path.join(prof_path, '.gitignore'))
+        if (setup := getattr(LIB_LIB, 'setup_template', None)):
+            setup(prof_path, un_args)
+        print(f"Profile created at {prof_path}")
     else:
-        print(f"Profile at {PROFILE_PATH} already exists!")
+        print(f"Profile at {prof_path} already exists!")
 
 
-def operation_list(args):
-    pass
-
-
-CHOICES = ['start', 'stop', 'create', 'list']
+CHOICES = ['start', 'stop', 'noop']
 
 OPERATIONS = {
-    'noop': operation_noop,
+    '_noop': operation_noop,
     'start': operation_start,
     'stop': operation_stop,
-    'create': operation_create,
-    'list': operation_list,
-    '_django': operation_django,
+    '_passthru': operation_passthru,
 }
 
 
 def main():
-    uvloop.install()
     parser = create_parser()
     args, unknown_args = parser.parse_known_args()
 
     option = args.operation.lower()
     operation = option
+
     if option not in CHOICES:
-        option = '_django'
+        option = '_passthru'
 
     try:
-        set_profile_path(args)
+        if args.init:
+            set_honahlee_lib(args.libfolder[0])
+            option_init(args.init[0], unknown_args)
+            option = '_noop'
+            operation = '_noop'
+        if option in ['start', 'stop', '_passthru']:
+            set_profile_path(args)
+            os.chdir(PROFILE_PATH)
+            import sys
+            sys.path.insert(0, os.getcwd())
+            set_honahlee_lib_from_profile()
+
         if not (op_func := OPERATIONS.get(option, None)):
             raise ValueError(f"No operation: {option}")
         op_func(operation, args, unknown_args)
 
     except Exception as e:
+        import sys
+        import traceback
+        traceback.print_exc(file=sys.stdout)
         print(f"Something done goofed: {e}")

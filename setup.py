@@ -31,6 +31,21 @@ def get_version():
     return open(VERSION_PATH).read().strip()
 
 
+def get_scripts():
+    """
+    Determine which executable scripts should be added. For Windows,
+    this means creating a .bat file.
+    """
+    if OS_WINDOWS:
+        batpath = os.path.join("bin", "windows", "honahlee.bat")
+        scriptpath = os.path.join(sys.prefix, "Scripts", "honahlee_launcher.py")
+        with open(batpath, "w") as batfile:
+            batfile.write('@"%s" "%s" %%*' % (sys.executable, scriptpath))
+        return [batpath, os.path.join("bin", "windows", "honahlee_launcher.py")]
+    else:
+        return [os.path.join("bin", "unix", "honahlee")]
+
+
 def package_data():
     """
     By default, the distribution tools ignore all non-python files.
@@ -69,7 +84,7 @@ setup(
     """,
     long_description_content_type="text/markdown",
     packages=find_packages(),
-    # scripts=get_scripts(),
+    scripts=get_scripts(),
     install_requires=get_requirements(),
     package_data={"": package_data()},
     zip_safe=False,

@@ -51,7 +51,7 @@ class BaseConfig:
         """
         pass
 
-    def _init_tls(self):
+    def _init_tls_contexts(self):
         for k, v in self.tls.items():
             new_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
             new_context.load_cert_chain(v['pem'], v['key'])
@@ -66,7 +66,7 @@ class BaseConfig:
 
 class BaseApplication:
 
-    def __init__(self, config):
+    def __init__(self, config: BaseConfig):
         self.config = config
         self.classes = defaultdict(dict)
         self.services = dict()
@@ -97,11 +97,9 @@ class BaseApplication:
         I'm just that afraid of collisions.
         """
         existing = set(existing)
-        fresh_uuid = None
-        while fresh_uuid is None:
-            new_uuid = uuid.uuid4()
-            if new_uuid not in existing:
-                fresh_uuid = new_uuid
+        fresh_uuid = uuid.uuid4()
+        while fresh_uuid in existing:
+            fresh_uuid = uuid.uuid4()
         return fresh_uuid
 
 
