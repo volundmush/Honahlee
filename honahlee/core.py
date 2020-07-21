@@ -1,5 +1,8 @@
-from collections import defaultdict
 import uuid
+import ssl
+import asyncio
+
+from collections import defaultdict
 from honahlee.utils.misc import import_from_module
 
 
@@ -11,6 +14,7 @@ class BaseConfig:
         self.classes = defaultdict(dict)
         self.interfaces = dict()
         self.tls = dict()
+        self.tls_contexts = dict()
         self.servers = defaultdict(dict)
         self.clients = defaultdict(dict)
 
@@ -18,6 +22,7 @@ class BaseConfig:
         self._config_classes()
         self._config_interfaces()
         self._config_tls()
+        self._init_tls_contexts()
 
     def _config_classes(self):
         """
@@ -26,11 +31,7 @@ class BaseConfig:
         self.classes['services']['network'] = 'honahlee.services.network.ServerService'
         self.classes['services']['client'] = 'honahlee.services.network.ClientService'
         self.classes['servers']['base'] = 'honahlee.services.network.HonahleeServer'
-        self.classes['protocols']['telnet'] = 'honahlee.protocols.telnet.TelnetAsgiProtocol'
-        self.classes['consumers']['telnet'] = 'honahlee.protocols.telnet.AsyncTelnetConsumer'
-        self.classes['consumers']['game'] = 'honahlee.services.web.GameConsumer'
-        self.classes['consumers']['link'] = 'honahlee.services.web.LinkConsumer'
-        self.classes['consumers']['lifespan'] = 'honahlee.services.web.LifespanAsyncConsumer'
+        self.classes['clients']['base'] = 'honahlee.services.network.HonahleeClient'
 
     def _config_interfaces(self):
         """
@@ -48,10 +49,13 @@ class BaseConfig:
         can have multiple contexts for different TLS/SSL cert combos.
         These must be file paths to the certifications/keys in question.
         """
-        self.tls['default'] = {
-            'cert': '',
-            'key': ''
-        }
+        pass
+
+    def _init_tls(self):
+        for k, v in self.tls.items():
+            new_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            new_context.load_cert_chain(v['pem'], v['key'])
+            self.tls_contexts[k] = new_context
 
     def _config_servers(self):
         pass
@@ -66,6 +70,7 @@ class BaseApplication:
         self.config = config
         self.classes = defaultdict(dict)
         self.services = dict()
+        self.loop = asyncio.get_event_loop()
 
     async def setup(self):
         # Import all classes from the given config object.
