@@ -34,7 +34,6 @@ def create_parser():
 
 
 def set_honahlee_lib(name):
-    print(f"SETTING HONAHLEE LIB TO: {name}")
     global LIB_LIB, LIB_FOLDER, LIB_TEMPLATE
     LIB_LIB = importlib.import_module(name)
     LIB_FOLDER = os.path.abspath(os.path.dirname(LIB_LIB.__file__))
@@ -89,13 +88,10 @@ def ensure_stopped():
 def operation_start(op, args, unknown):
     if not ensure_stopped():
         raise ValueError(f"Server is already running as Process {PROFILE_PID}.")
-    print("LET'S START THIS THING!")
     env = os.environ.copy()
     env['HONAHLEE_PROFILE'] = PROFILE_PATH
     cmd = f"{sys.executable} {HONAHLEE_APP}"
     subprocess.Popen(shlex.split(cmd), env=env)
-    if not ensure_running():
-        raise ValueError("Could not launch Honahlee! Why?")
 
 
 def operation_noop(op, args, unknown):

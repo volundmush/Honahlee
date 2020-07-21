@@ -1,11 +1,9 @@
 #!/usr/bin/env python3.8
-import importlib
 import os
 import sys
 
 import asyncio
 import uvloop
-
 
 from honahlee.utils.misc import import_from_module
 
@@ -43,8 +41,6 @@ if __name__ == "__main__":
     pidfile = os.path.join('.', 'app.pid')
     with open(pidfile, 'w') as p:
         p.write(str(os.getpid()))
-        print(pidfile)
-        print(os.getpid())
 
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
