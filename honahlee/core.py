@@ -23,6 +23,8 @@ class BaseConfig:
         self._config_interfaces()
         self._config_tls()
         self._init_tls_contexts()
+        self._config_servers()
+        self._config_clients()
 
     def _config_classes(self):
         """
@@ -81,7 +83,7 @@ class BaseApplication:
                 self.classes[category][name] = found
 
         for name, v in sorted(self.classes['services'].items(), key=lambda x: getattr(x[1], 'init_order', 0)):
-            self.services[name] = v(self)
+            self.services[name] = v()
 
         for service in sorted(self.services.values(), key=lambda s: getattr(s, 'load_order', 0)):
             await service.setup()

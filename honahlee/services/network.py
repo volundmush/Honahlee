@@ -20,11 +20,10 @@ class HonahleeServer(HonahleeNetworkBase):
         super().__init__(service, name, address, port, protocol, tls)
         self.server = None
         self.task = None
+        self.asgi = self.app.services['web'].asgi_app
 
     async def accept(self, reader, writer):
-        asgi = self.service.app.services['web'].asgi_app
-        new_protocol = self.protocol(reader, writer, self, asgi)
-        # asyncio.get_event_loop().create_task(new_protocol.start())
+        new_protocol = self.protocol(reader, writer, self, self.asgi)
         await new_protocol.start()
 
     async def start(self):
@@ -70,6 +69,7 @@ class ServerService(BaseService):
         for k, v in self.app.config.servers.items():
             self.create_server(k, self.app.config.interfaces[v['interface']], v['port'], v['server_class'], v['protocol_class'],
                                v['tls'])
+
 
     async def start(self):
         for k, v in self.servers.items():
