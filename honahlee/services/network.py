@@ -20,10 +20,9 @@ class HonahleeServer(HonahleeNetworkBase):
         super().__init__(service, name, address, port, protocol, tls)
         self.server = None
         self.task = None
-        self.asgi = self.app.services['web'].asgi_app
 
     async def accept(self, reader, writer):
-        new_protocol = self.protocol(reader, writer, self, self.asgi)
+        new_protocol = self.protocol(reader, writer, self, self.app.services['web'].asgi_app)
         await new_protocol.start()
 
     async def start(self):
