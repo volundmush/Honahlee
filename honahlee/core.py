@@ -1,4 +1,3 @@
-import uuid
 import ssl
 import asyncio
 
@@ -84,29 +83,13 @@ class BaseApplication:
 
         for name, v in sorted(self.classes['services'].items(), key=lambda x: getattr(x[1], 'init_order', 0)):
             self.services[name] = v()
-        print(self.services)
+
         for service in sorted(self.services.values(), key=lambda s: getattr(s, 'load_order', 0)):
-            print(f"Setting up {service}")
             await service.setup()
-            print(f"finished setting up {service}")
 
     async def start(self):
         for service in sorted(self.services.values(), key=lambda s: s.start_order):
-            print(f"Starting {service}")
             await service.start()
-            print(f"finished starting {service}")
-
-    def fresh_uuid4(self, existing):
-        """
-        Given a list of UUID4s, generate a new one that's not already used.
-        Yes, I know this is silly. UUIDs are meant to be unique by sheer statistic unlikelihood of a conflict.
-        I'm just that afraid of collisions.
-        """
-        existing = set(existing)
-        fresh_uuid = uuid.uuid4()
-        while fresh_uuid in existing:
-            fresh_uuid = uuid.uuid4()
-        return fresh_uuid
 
 
 class Application(BaseApplication):

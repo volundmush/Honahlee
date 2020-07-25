@@ -40,7 +40,6 @@ class ServerService(BaseService):
 
     def __init__(self):
         self.servers = dict()
-        self.connections = dict()
 
     def create_server(self, name, address, port, server_class, protocol_class, tls):
         if name in self.servers:
@@ -55,20 +54,11 @@ class ServerService(BaseService):
         new_server = srv_class(self, name, address, port, prot_class, tls_context)
         self.servers[name] = new_server
 
-    def register_connection(self, conn):
-        new_uuid = self.app.fresh_uuid4(self.servers.keys())
-        conn.conn_id = new_uuid
-        self.connections[conn.conn_id] = conn
-
-    def unregister_connection(self, conn):
-        del self.connections[conn.conn_id]
-
     async def setup(self):
 
         for k, v in self.app.config.servers.items():
             self.create_server(k, self.app.config.interfaces[v['interface']], v['port'], v['server_class'], v['protocol_class'],
                                v['tls'])
-
 
     async def start(self):
         for k, v in self.servers.items():
