@@ -3,7 +3,7 @@ import asyncio
 
 from collections import defaultdict
 from honahlee.utils.misc import import_from_module
-
+from logging.handlers import TimedRotatingFileHandler
 
 class BaseConfig:
 
@@ -16,6 +16,7 @@ class BaseConfig:
         self.tls_contexts = dict()
         self.servers = defaultdict(dict)
         self.clients = defaultdict(dict)
+        self.log_handlers = dict()
 
     def setup(self):
         self._config_classes()
@@ -24,6 +25,7 @@ class BaseConfig:
         self._init_tls_contexts()
         self._config_servers()
         self._config_clients()
+        self._config_log_handlers()
 
     def _config_classes(self):
         """
@@ -64,6 +66,11 @@ class BaseConfig:
     def _config_clients(self):
         pass
 
+    def _config_log_handlers(self):
+        self.log_handlers['application'] = TimedRotatingFileHandler(filename='logs/application', when='D')
+        self.log_handlers['server'] = TimedRotatingFileHandler(filename='logs/server', when='D')
+        self.log_handlers['client'] = TimedRotatingFileHandler(filename='logs/client', when='D')
+
 
 class BaseApplication:
 
@@ -74,22 +81,32 @@ class BaseApplication:
         self.loop = asyncio.get_event_loop()
 
     async def setup(self):
+        found_classes = list()
+
         # Import all classes from the given config object.
         for category, d in self.config.classes.items():
             for name, path in d.items():
                 found = import_from_module(path)
                 found.app = self
                 self.classes[category][name] = found
+                if hasattr(found, 'class_init'):
+                    found_classes.append(found)
 
         for name, v in sorted(self.classes['services'].items(), key=lambda x: getattr(x[1], 'init_order', 0)):
             self.services[name] = v()
-
+        print(self.services)
         for service in sorted(self.services.values(), key=lambda s: getattr(s, 'load_order', 0)):
+            print(f"SETTING UP {service}")
             await service.setup()
+            print(f"FINISHED SETTING UP {service}")
+        for cls in found_classes:
+            cls.class_init()
 
     async def start(self):
         for service in sorted(self.services.values(), key=lambda s: s.start_order):
+            print(f"STARTING {service}")
             await service.start()
+            print(f"FINISHED STARTING {service}")
 
 
 class Application(BaseApplication):

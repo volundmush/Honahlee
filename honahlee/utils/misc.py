@@ -1,8 +1,9 @@
 import importlib
 import uuid
+import typing
 
 
-def import_from_module(path: str):
+def import_from_module(path: str) -> typing.Any:
     if not path:
         raise ImportError("Cannot import null path!")
     if '.' not in path:
