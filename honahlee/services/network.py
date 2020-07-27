@@ -18,8 +18,6 @@ class HonahleeServer(HonahleeNetworkBase):
 
     def __init__(self, service, name, address, port, protocol, tls):
         super().__init__(service, name, address, port, protocol, tls)
-        self.server = None
-        self.task = None
 
     async def accept(self, reader, writer):
         new_protocol = self.protocol(reader, writer, self, self.app.services['web'].asgi_app)
@@ -27,12 +25,7 @@ class HonahleeServer(HonahleeNetworkBase):
 
     async def start(self):
         ssl = self.service.ssl_context if self.tls else None
-        self.server = asyncio.start_server(self.accept, host=self.address, port=self.port, ssl=ssl)
-        self.task = self.app.loop.create_task(self.server)
-
-    async def stop(self):
-        if self.server:
-            self.server.stop()
+        await asyncio.start_server(self.accept, host=self.address, port=self.port, ssl=ssl)
 
 
 class ServerService(BaseService):
@@ -54,15 +47,14 @@ class ServerService(BaseService):
         new_server = srv_class(self, name, address, port, prot_class, tls_context)
         self.servers[name] = new_server
 
-    async def setup(self):
+    def setup(self):
 
         for k, v in self.app.config.servers.items():
             self.create_server(k, self.app.config.interfaces[v['interface']], v['port'], v['server_class'], v['protocol_class'],
                                v['tls'])
 
     async def start(self):
-        for k, v in self.servers.items():
-            await v.start()
+        await asyncio.gather(*[srv.start() for srv in self.servers.values()])
 
 
 class HonahleeClient(HonahleeNetworkBase):

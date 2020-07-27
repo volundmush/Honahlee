@@ -72,13 +72,7 @@ class AsgiAdapterProtocol:
 
     async def start(self):
         await self.generate_connect()
-        self.reader_task = asyncio.create_task(self.run_reader())
-        self.events_task = asyncio.create_task(self.run_events())
-        await self.start_negotiation()
-        # When negotiation is over, we are actually closing up shop...
-        if self.reader_task:
-            self.reader_task.cancel()
-        self.events_task.cancel()
+        await asyncio.gather(self.run_reader(), self.run_events(), self.start_negotiation())
 
     async def app_reader(self):
         """
@@ -139,7 +133,6 @@ class AsgiAdapterProtocol:
                     'reason': "EOF"
                 })
                 break
-        self.reader_task.cancel()
 
     async def run_events(self):
         while True:

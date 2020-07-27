@@ -8,27 +8,10 @@ import uvloop
 from honahlee.utils.misc import import_from_module
 
 
-async def main():
-    # Step 1: get settings from profile.
-    try:
-        conf = import_from_module('appdata.config.Config')
-    except Exception:
-        raise Exception("Could not import config!")
-
-    config = conf()
-    config.setup()
-
-    # Step 2: Locate application Core from settings. Instantiate
-    # application core and inject settings into it.
-    # This doesn't have anything to do with Twisted's own Application framework.
-    core_class = import_from_module(config.application)
-    app_core = core_class(config)
-
-    # Step 3: Load application from core.
-    await app_core.setup()
-
-    # Step 4: Start everything up and run forever.
-    await app_core.start()
+def handle_exception(loop, context):
+    print("HANDLING EXCEPTION")
+    print(loop)
+    print(context)
 
 
 if __name__ == "__main__":
@@ -44,7 +27,27 @@ if __name__ == "__main__":
 
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.create_task(main())
-    loop.run_forever()
+    loop.set_debug(True)
+    loop.set_exception_handler(handle_exception)
 
+    # Step 1: get settings from profile.
+    try:
+        conf = import_from_module('appdata.config.Config')
+    except Exception:
+        raise Exception("Could not import config!")
+
+    config = conf()
+    config.setup()
+
+    # Step 2: Locate application Core from settings. Instantiate
+    # application core and inject settings into it.
+    # This doesn't have anything to do with Twisted's own Application framework.
+    core_class = import_from_module(config.application)
+    app_core = core_class(config, loop)
+
+    # Step 3: Load application from core.
+    app_core.setup()
+
+    # Step 4: Start everything up and run forever.
+    asyncio.run(app_core.start())
     os.remove(pidfile)

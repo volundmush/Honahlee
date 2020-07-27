@@ -5,6 +5,7 @@ from collections import defaultdict
 from honahlee.utils.misc import import_from_module
 from logging.handlers import TimedRotatingFileHandler
 
+
 class BaseConfig:
 
     def __init__(self):
@@ -74,15 +75,16 @@ class BaseConfig:
 
 class BaseApplication:
 
-    def __init__(self, config: BaseConfig):
+    def __init__(self, config: BaseConfig, loop):
         self.config = config
         self.classes = defaultdict(dict)
         self.services = dict()
-        self.loop = asyncio.get_event_loop()
+        self.loop = loop
+        self.root_awaitables = list()
 
-    async def setup(self):
+    def setup(self):
         found_classes = list()
-
+        print("HOW FAR ARE WE GETTING?")
         # Import all classes from the given config object.
         for category, d in self.config.classes.items():
             for name, path in d.items():
@@ -97,16 +99,14 @@ class BaseApplication:
         print(self.services)
         for service in sorted(self.services.values(), key=lambda s: getattr(s, 'load_order', 0)):
             print(f"SETTING UP {service}")
-            await service.setup()
+            service.setup()
             print(f"FINISHED SETTING UP {service}")
         for cls in found_classes:
             cls.class_init()
 
     async def start(self):
-        for service in sorted(self.services.values(), key=lambda s: s.start_order):
-            print(f"STARTING {service}")
-            await service.start()
-            print(f"FINISHED STARTING {service}")
+        start_services = sorted(self.services.values(), key=lambda s: s.start_order)
+        await asyncio.gather(*(service.start() for service in start_services))
 
 
 class Application(BaseApplication):
@@ -119,7 +119,7 @@ class BaseService:
     setup_order = 0
     start_order = 0
 
-    async def setup(self):
+    def setup(self):
         pass
 
     async def start(self):
