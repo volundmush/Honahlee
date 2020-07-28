@@ -18,6 +18,7 @@ class BaseConfig:
         self.servers = defaultdict(dict)
         self.clients = defaultdict(dict)
         self.log_handlers = dict()
+        self.regex = dict()
 
     def setup(self):
         self._config_classes()
@@ -27,6 +28,7 @@ class BaseConfig:
         self._config_servers()
         self._config_clients()
         self._config_log_handlers()
+        self._config_regex()
 
     def _config_classes(self):
         """
@@ -71,6 +73,10 @@ class BaseConfig:
         self.log_handlers['application'] = TimedRotatingFileHandler(filename='logs/application', when='D')
         self.log_handlers['server'] = TimedRotatingFileHandler(filename='logs/server', when='D')
         self.log_handlers['client'] = TimedRotatingFileHandler(filename='logs/client', when='D')
+
+    def _config_regex(self):
+        pass
+
 
 
 class BaseApplication:
@@ -118,9 +124,24 @@ class BaseService:
     init_order = 0
     setup_order = 0
     start_order = 0
+    backend_key = None
+
+    def __init__(self):
+        if self.backend_key:
+            cls = self.app.classes[self.backend_key]
+            self.backend = cls(self)
 
     def setup(self):
         pass
 
     async def start(self):
+        pass
+
+
+class BaseBackend:
+
+    def __init__(self, service):
+        self.service = service
+
+    def setup(self):
         pass
