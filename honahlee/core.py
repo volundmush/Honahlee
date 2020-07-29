@@ -1,5 +1,6 @@
 import ssl
 import asyncio
+import logging
 
 from collections import defaultdict
 from honahlee.utils.misc import import_from_module
@@ -18,6 +19,7 @@ class BaseConfig:
         self.servers = defaultdict(dict)
         self.clients = defaultdict(dict)
         self.log_handlers = dict()
+        self.logs = dict()
         self.regex = dict()
 
     def setup(self):
@@ -70,13 +72,18 @@ class BaseConfig:
         pass
 
     def _config_log_handlers(self):
-        self.log_handlers['application'] = TimedRotatingFileHandler(filename='logs/application', when='D')
-        self.log_handlers['server'] = TimedRotatingFileHandler(filename='logs/server', when='D')
-        self.log_handlers['client'] = TimedRotatingFileHandler(filename='logs/client', when='D')
+        for name in ('application', 'server', 'client'):
+            handler = TimedRotatingFileHandler(filename=f'logs/{name}', when='D')
+            self.log_handlers[name] = handler
+
+    def _config_logs(self):
+        for name in ('application', 'server', 'client'):
+            log = logging.getLogger(name)
+            log.addHandler(self.log_handlers[name])
+            self.logs[name] = log
 
     def _config_regex(self):
         pass
-
 
 
 class BaseApplication:
