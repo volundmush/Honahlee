@@ -49,5 +49,5 @@ if __name__ == "__main__":
     app_core.setup()
 
     # Step 4: Start everything up and run forever.
-    asyncio.run(app_core.start())
+    asyncio.run(app_core.start(), debug=True)
     os.remove(pidfile)

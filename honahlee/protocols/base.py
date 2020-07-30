@@ -89,6 +89,7 @@ class AsgiAdapterProtocol:
         pass
 
     def setup_scope(self):
+        self.scope['to_protocol'] = self.from_app
         self.scope["type"] = self.asgi_type
         self.scope["server"] = (self.server.address, self.server.port)
         self.scope["connection_date"] = datetime.datetime.utcnow()
@@ -136,9 +137,11 @@ class AsgiAdapterProtocol:
 
     async def run_events(self):
         while True:
+            print("WAITING FOR NEW EVENT...")
             event = await self.from_app.get()
             await self.handle_event(event)
             self.from_app.task_done()
+        print("STOPPED WAITING FOR EVENTS")
 
     async def handle_event(self, event):
         """

@@ -30,6 +30,7 @@ class BaseConfig:
         self._config_servers()
         self._config_clients()
         self._config_log_handlers()
+        self._config_logs()
         self._config_regex()
 
     def _config_classes(self):
@@ -135,7 +136,7 @@ class BaseService:
 
     def __init__(self):
         if self.backend_key:
-            cls = self.app.classes[self.backend_key]
+            cls = self.app.classes['backends'][self.backend_key]
             self.backend = cls(self)
 
     def setup(self):
