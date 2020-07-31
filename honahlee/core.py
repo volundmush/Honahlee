@@ -98,7 +98,6 @@ class BaseApplication:
 
     def setup(self):
         found_classes = list()
-        print("HOW FAR ARE WE GETTING?")
         # Import all classes from the given config object.
         for category, d in self.config.classes.items():
             for name, path in d.items():
@@ -112,9 +111,7 @@ class BaseApplication:
             self.services[name] = v()
         print(self.services)
         for service in sorted(self.services.values(), key=lambda s: getattr(s, 'load_order', 0)):
-            print(f"SETTING UP {service}")
             service.setup()
-            print(f"FINISHED SETTING UP {service}")
         for cls in found_classes:
             cls.class_init()
 
