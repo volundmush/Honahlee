@@ -5,7 +5,7 @@ import sys
 import asyncio
 import uvloop
 
-from honahlee.utils.misc import import_from_module
+from honahlee.utils import import_from_module
 
 
 def handle_exception(loop, context):
@@ -14,25 +14,19 @@ def handle_exception(loop, context):
     print(context)
 
 
-if __name__ == "__main__":
+async def main():
     if (new_cwd := os.environ.get("HONAHLEE_PROFILE")):
         if not os.path.exists(new_cwd):
             raise ValueError("Improper Honahlee profile!")
         os.chdir(os.path.abspath(new_cwd))
         sys.path.insert(0, os.getcwd())
 
-    pidfile = os.path.join('.', 'app.pid')
-    with open(pidfile, 'w') as p:
-        p.write(str(os.getpid()))
-
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.set_debug(True)
-    loop.set_exception_handler(handle_exception)
+    if not (app_name := os.environ.get("HONAHLEE_APPNAME")):
+        raise ValueError("Improper environment variables. needs HONAHLEE_APPNAME")
 
     # Step 1: get settings from profile.
     try:
-        conf = import_from_module('appdata.config.Config')
+        conf = import_from_module(f'appdata.{app_name}.Config')
     except Exception:
         raise Exception("Could not import config!")
 
@@ -40,14 +34,22 @@ if __name__ == "__main__":
     config.setup()
 
     # Step 2: Locate application Core from settings. Instantiate
-    # application core and inject settings into it.
-    # This doesn't have anything to do with Twisted's own Application framework.
-    core_class = import_from_module(config.application)
-    app_core = core_class(config, loop)
+    if not (core_class := import_from_module(config.application)):
+        raise ValueError(f"Cannot import {app_name} from config applications")
+
+    pidfile = os.path.join('.', f'{app_name}.pid')
+    with open(pidfile, 'w') as p:
+        p.write(str(os.getpid()))
+
+    app_core = core_class(config)
 
     # Step 3: Load application from core.
-    app_core.setup()
+    await app_core.setup()
 
     # Step 4: Start everything up and run forever.
-    asyncio.run(app_core.start(), debug=True)
+    await app_core.start()
     os.remove(pidfile)
+
+if __name__ == "__main__":
+    uvloop.install()
+    asyncio.run(main(), debug=True)

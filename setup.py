@@ -53,13 +53,14 @@ def package_data():
     Make sure we get everything.
     """
     file_set = []
-    for root, dirs, files in os.walk("honahlee"):
-        for f in files:
-            if ".git" in f.split(os.path.normpath(os.path.join(root, f))):
-                # Prevent the repo from being added.
-                continue
-            file_name = os.path.relpath(os.path.join(root, f), "honahlee")
-            file_set.append(file_name)
+    for d in ("honahlee", "honahlee_hub", "honahlee_portal"):
+        for root, dirs, files in os.walk(d):
+            for f in files:
+                if ".git" in f.split(os.path.normpath(os.path.join(root, f))):
+                    # Prevent the repo from being added.
+                    continue
+                file_name = os.path.relpath(os.path.join(root, f), d)
+                file_set.append(file_name)
     return file_set
 
 

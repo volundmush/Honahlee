@@ -1,5 +1,5 @@
-from honahlee.core import BaseConfig
+from honahlee.core import LauncherConfig
 
 
-class Config(BaseConfig):
+class Launcher(LauncherConfig):
     pass

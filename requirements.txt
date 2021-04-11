@@ -1,2 +1,4 @@
-pytz >= 2020.1
-uvloop == 0.14.0
+uvloop
+autobahn
+mudlink
+mudstring

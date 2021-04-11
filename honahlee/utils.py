@@ -14,6 +14,7 @@ def import_from_module(path: str) -> typing.Any:
     return getattr(module, identifier)
 
 
+# to_str is yoinked from Evennia.
 def to_str(text, session=None):
     """
     Try to decode a bytestream to a python str, using encoding schemas from settings
@@ -44,8 +45,7 @@ def to_str(text, session=None):
     try:
         return text.decode(default_encoding)
     except (LookupError, UnicodeDecodeError):
-        from django.conf import settings
-        for encoding in settings.ENCODINGS:
+        for encoding in ["utf-8", "latin-1", "ISO-8859-1"]:
             try:
                 return text.decode(encoding)
             except (LookupError, UnicodeDecodeError):
@@ -185,3 +185,12 @@ def fresh_uuid4(existing):
     while fresh_uuid in existing:
         fresh_uuid = uuid.uuid4()
     return fresh_uuid
+
+
+def partial_match(match_text, candidates, key=str):
+    candidate_list = sorted(candidates, key=lambda item: len(key(item)))
+    for candidate in candidate_list:
+        if match_text.lower() == key(candidate).lower():
+            return candidate
+        if key(candidate).lower().startswith(match_text.lower()):
+            return candidate
