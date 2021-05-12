@@ -1,4 +1,10 @@
 uvloop
 autobahn
 mudlink
-mudstring
+rich
+crossbar
+ujson
+passlib
+argon2_cffi
+aiocouch
+pytz

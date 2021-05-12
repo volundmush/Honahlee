@@ -1,7 +1,8 @@
 import importlib
 import uuid
 import typing
-
+import random
+import string
 
 def import_from_module(path: str) -> typing.Any:
     if not path:
@@ -194,3 +195,10 @@ def partial_match(match_text, candidates, key=str):
             return candidate
         if key(candidate).lower().startswith(match_text.lower()):
             return candidate
+
+
+def generate_name(prefix, existing, gen_length=20):
+    attempt = f"{prefix}{''.join(random.choices(string.ascii_letters + string.digits, k=gen_length))}"
+    while attempt in existing:
+        attempt = f"{prefix}{''.join(random.choices(string.ascii_letters + string.digits, k=gen_length))}"
+    return attempt

@@ -2,10 +2,12 @@ import ssl
 import asyncio
 import logging
 
+
 from collections import defaultdict
 from honahlee.utils import import_from_module
 from logging.handlers import TimedRotatingFileHandler
 from autobahn.asyncio.component import Component
+from aiocouch import CouchDB, NotFoundError
 
 
 class BaseConfig:
@@ -22,6 +24,9 @@ class BaseConfig:
         self.regex = dict()
         self.wamp_realm = "honahlee"
         self.wamp_transports = "ws://127.0.0.1:8080/ws"
+        self.couch_url = "http://localhost:5984"
+        self.couch_username = "honahlee"
+        self.couch_password = "honahlee"
 
     def setup(self):
         self._config_classes()
@@ -82,7 +87,9 @@ class BaseConfig:
             self.logs[name] = log
 
     def _config_regex(self):
-        pass
+        """
+        Compiling a regex iastefully, so do it once, here, and save it to self.regex for safekeeping.
+        """
 
 
 class LauncherConfig:
@@ -103,9 +110,12 @@ class Application(Component):
         self.on_join(self.joined)
         self.on_leave(self.left)
 
-    def joined(self, session, details):
+    async def joined(self, session, details):
         self.active = True
         self.session = session
+        rpc_list = [m for m in dir(self.__class__) if m.startswith("rpc_")]
+        for m in rpc_list:
+            session.register(getattr(self, m), f"honahlee.{self.config.name}.rpc.{m[4:]}")
 
     def left(self):
         self.active = False
@@ -153,3 +163,37 @@ class BaseService:
 
     async def start(self):
         pass
+
+
+class CouchDBService(BaseService):
+    setup_order = -1
+    name = 'couch'
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.couch = None
+        self.db = dict()
+
+    async def setup(self):
+        self.couch = CouchDB(self.app.config.couch_url, user=self.app.config.couch_username, password=self.app.config.couch_password)
+        await self.couch.check_credentials()
+        await self.prepare_databases()
+
+    async def start(self):
+        async with self.couch as c:
+            while True:
+                await asyncio.sleep(10)
+
+    async def prepare_databases(self):
+        """
+        Use this method to check CouchDB, prepare 'schema', and load Databases into self.db for convenience.
+        """
+
+    def __getitem__(self, item):
+        return self.db[item]
+
+    async def load_or_create(self, name, **kwargs):
+        try:
+            self.db[name] = await self.couch[name]
+        except NotFoundError:
+            self.db[name] = await self.couch.create(name, **kwargs)

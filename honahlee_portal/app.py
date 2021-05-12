@@ -39,9 +39,6 @@ class Application(BaseApplication):
         conn.on_ready_cb = self.mudlink_on_ready
         conn.on_update_cb = self.mudlink_on_update
 
-        if self.session:
-            self.session.publish("honahlee.portal.events.client_connected", **conn.export())
-
     def mudlink_on_disconnect(self, conn):
         if self.session:
             self.session.publish("honahlee.portal.events.client_disconnected", **{"name": conn.name})
@@ -56,15 +53,14 @@ class Application(BaseApplication):
 
     def mudlink_on_ready(self, conn):
         if self.session:
-            self.session.publish("honahlee.portal.events.client_ready", **conn.export())
+            self.session.publish("honahlee.portal.events.client_connected", **conn.export())
 
     def mudlink_on_update(self, conn):
-        print(f"{conn} called mudlink_on_update")
         if self.session:
             self.session.publish("honahlee.portal.events.client_update", **conn.export())
 
     def rpc_all_clients(self, *args, **kwargs):
-        return {conn.name: conn.export() for conn in self.mudlink.connections.values()}
+        return {conn.name: conn.export() for conn in self.mudlink.connections.values() if conn.ready}
 
     def rpc_client_text(self, *args, **kwargs):
         pass
@@ -86,14 +82,3 @@ class Application(BaseApplication):
 
     def rpc_client_close(self, *args, **kwargs):
         pass
-
-    def joined(self, session, details):
-        super().joined(session, details)
-        session.register(self.rpc_all_clients, 'honahlee.portal.rpc.all_clients')
-        session.register(self.rpc_client_text, "honahlee.portal.rpc.client_text")
-        session.register(self.rpc_client_prompt, "honahlee.portal.rpc.client_prompt")
-        session.register(self.rpc_client_oob, "honahlee.portal.rpc.client_oob")
-        session.register(self.rpc_client_mssp, "honahlee.portal.rpc.client_mssp")
-        session.register(self.rpc_client_setdata, "honahlee.portal.rpc.client_setdata")
-        session.register(self.rpc_client_getdata, "honahlee.portal.rpc.client_getdata")
-        session.register(self.rpc_client_close, "honahlee.portal.rpc.client_close")
